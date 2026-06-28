@@ -1,0 +1,5 @@
+# Python test dependencies for the Dashboard plugin tests (dashboard/tests).
+# Installed in CI before `npm run test:python`. Not shipped in the npm package.
+fastapi
+httpx
+pywebpush

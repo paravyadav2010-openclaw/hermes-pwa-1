@@ -1,0 +1,8 @@
+name: hermes-pwa
+version: 0.1.0
+description: Installable mobile PWA client for Hermes Dashboard
+provides_tools: []
+provides_hooks:
+  - pre_approval_request
+  - post_approval_response
+  - post_llm_call
