@@ -1,6 +1,7 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest';
 import { render, screen, waitFor, fireEvent } from '@testing-library/react';
 import { Settings } from './Settings';
+import { HERMES_PWA_RELEASE_VERSION } from '../app/version';
 import { useConnectionStore, useProfilesStore, useModelStore, useConfigStore } from '@hermes-pwa/core';
 
 const makeRest = (overrides = {}) =>
@@ -65,7 +66,7 @@ describe('Settings', () => {
     await waitFor(() => expect(rest.systemStats).toHaveBeenCalled());
     await waitFor(() => expect(rest.modelOptions).toHaveBeenCalled());
     await waitFor(() => expect(screen.getByText('PWA client')).toBeInTheDocument());
-    expect(screen.getByText('0.1.0')).toBeInTheDocument();
+    expect(screen.getByText(HERMES_PWA_RELEASE_VERSION)).toBeInTheDocument();
     expect(screen.getByText('Hermes backend')).toBeInTheDocument();
     expect(screen.getByText('v0.16.0')).toBeInTheDocument();
     expect(screen.queryByText('Version')).not.toBeInTheDocument();

@@ -85,6 +85,7 @@
     "verify:pwa": "node scripts/verify-pwa.mjs",
     "verify:pack": "node scripts/verify-pack.mjs",
     "version:check": "node scripts/check-version-consistency.mjs",
+    "release:bump": "node scripts/bump-version.mjs",
     "e2e:update-notification": "node scripts/e2e-update-notification.mjs",
     "e2e:auth-smoke": "node scripts/e2e/auth-smoke.mjs",
     "e2e:chat-smoke": "node scripts/e2e/chat-smoke.mjs",
