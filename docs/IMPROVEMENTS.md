@@ -1,7 +1,9 @@
 # Planned improvements
 
 Backlog of things worth building **if they improve the mobile UX**. These are ideas, not
-commitments — turn an item into a GitHub issue when you pick it up.
+commitments. Concrete, trackable work lives in
+[GitHub Issues](https://github.com/stasstepv/hermes-pwa/issues) — this doc is the high-level
+view; issue numbers are linked inline below.
 
 Some entries came from comparing this client with other Hermes frontends, notably
 [`deboboy/hermes-pwa`](https://github.com/deboboy/hermes-pwa) — a Next.js + shadcn/ui
@@ -12,6 +14,7 @@ reference implementation. Where it does something we don't, it is credited below
 ## High value — borrow these
 
 ### 1. Cross-session full-text search
+- **Tracked:** [#8](https://github.com/stasstepv/hermes-pwa/issues/8)
 - **Now:** the Sessions screen only filters the already-loaded session list. There is no
   full-text search across past transcripts.
 - **Goal:** search every session by message content, combining a local **IndexedDB** cache
@@ -24,6 +27,7 @@ reference implementation. Where it does something we don't, it is credited below
   `packages/web`, and an IndexedDB caching layer for transcripts.
 
 ### 2. Push: external trigger webhook + self-test + stable client id
+- **Tracked:** [#9](https://github.com/stasstepv/hermes-pwa/issues/9)
 - **Now:** Web Push works via the Python plugin (`pywebpush`) with subscribe/status/send,
   gated by Dashboard auth. There is no clean "external job → notify" entry point or in-app test.
 - **Goal:**
@@ -48,6 +52,18 @@ reference implementation. Where it does something we don't, it is credited below
 - **Caveat:** we deliberately run a **bespoke, clean-room design system** (`tokens.css`,
   Bodoni Moda / Hanken Grotesk). Adopt only if it clearly improves UX *without* diluting the visual
   identity or the clean-room stance. Most likely we keep bespoke — logged for completeness.
+
+---
+
+## Fixing in 0.1.1 (install & docs, from post-release E2E)
+
+Tracked under [milestone 0.1.1](https://github.com/stasstepv/hermes-pwa/milestone/1):
+
+- [#6](https://github.com/stasstepv/hermes-pwa/issues/6) — `npx install` does not enable the
+  plugin; add the enable step to docs + installer output, plus an opt-in `--enable` flag.
+  Workaround today: run `hermes plugins enable hermes-pwa` after `npx hermes-pwa install`.
+- [#7](https://github.com/stasstepv/hermes-pwa/issues/7) — use explicit `/index.html` in
+  user-facing PWA URLs (the bare directory URL can 404 in some contexts).
 
 ---
 
