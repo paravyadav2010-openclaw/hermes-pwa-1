@@ -1,6 +1,9 @@
 import { describe, it, expect, vi } from 'vitest';
 import { render, screen, waitFor, fireEvent } from '@testing-library/react';
 import { CommandCenter } from './CommandCenter';
+import { HERMES_PWA_RELEASE_VERSION } from '../app/version';
+
+const VERSION_RE = new RegExp(`PWA\\s+${HERMES_PWA_RELEASE_VERSION.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')}`);
 
 const makeRest = (overrides = {}) => ({
   systemStats: vi.fn().mockResolvedValue({
@@ -39,7 +42,7 @@ describe('CommandCenter', () => {
     await waitFor(() => expect(screen.getByTestId('gateway-card')).toBeInTheDocument());
     expect(screen.getByText(/pid 1234/i)).toBeInTheDocument();
     expect(screen.getByText(/3 live/i)).toBeInTheDocument();
-    expect(screen.getByText(/PWA\s+0\.1\.0/)).toBeInTheDocument();
+    expect(screen.getByText(VERSION_RE)).toBeInTheDocument();
     expect(screen.getByText(/backend v0\.9\.0/)).toBeInTheDocument();
   });
 

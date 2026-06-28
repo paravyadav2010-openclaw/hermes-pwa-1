@@ -161,6 +161,32 @@ describe('useChatStore', () => {
     expect(useChatStore.getState().error).not.toContain('SECRET');
   });
 
+  it('preserves backend transcript order when message timestamps move backward', async () => {
+    vi.mocked(restMock.sessionMessages).mockResolvedValue({
+      session_id: 'stored-order',
+      messages: [
+        { id: 'm-1', role: 'user', content: 'old root user', timestamp: 1_782_550_574 },
+        { id: 'm-2', role: 'assistant', content: 'old root assistant', timestamp: 1_782_550_586 },
+        // Real Hermes compression/history rows can contain a newly inserted user
+        // message followed by restored assistant/tool rows with older timestamps.
+        // The backend REST history endpoint returns insertion/id order; PWA must
+        // not re-sort by timestamp or the assistant rows jump above their user.
+        { id: 'm-3', role: 'user', content: 'current user after compression', timestamp: 1_782_639_282 },
+        { id: 'm-4', role: 'assistant', content: 'assistant row with older timestamp', timestamp: 1_782_615_318 },
+      ],
+    });
+
+    await useChatStore.getState().loadHistory(restMock, 'stored-order');
+
+    expect(useChatStore.getState().messages.map((m) => m.id)).toEqual(['m-1', 'm-2', 'm-3', 'm-4']);
+    expect(useChatStore.getState().messages.map((m) => m.text)).toEqual([
+      'old root user',
+      'old root assistant',
+      'current user after compression',
+      'assistant row with older timestamp',
+    ]);
+  });
+
   it('routes slash commands through slash.exec instead of prompt.submit', async () => {
     useChatStore.setState({ sessionId: 's-2', messages: [] });
     vi.mocked(rpcMock.request).mockResolvedValueOnce({ output: 'Profile: default' });

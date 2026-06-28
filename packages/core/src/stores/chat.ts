@@ -341,13 +341,7 @@ function messagesFromResult(raw: unknown): Message[] {
   }
   const internal = maybeMessages
     .filter((item): item is Record<string, unknown> => Boolean(item) && typeof item === 'object')
-    .map(toInternalMessage)
-    .sort((a, b) => {
-      if (typeof a.createdAt === 'number' && typeof b.createdAt === 'number') {
-        return a.createdAt - b.createdAt;
-      }
-      return 0;
-    });
+    .map(toInternalMessage);
   return mergeToolMessages(internal).map(toPublicMessage);
 }
 

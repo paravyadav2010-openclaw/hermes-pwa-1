@@ -5,6 +5,17 @@ All notable changes are documented here. The format follows
 
 ## Unreleased
 
+## 0.1.1-beta — 2026-06-28
+
+First beta. Marked beta to set expectations while it gets real-world testing.
+
+### Fixed
+
+- **Chat transcript order.** History is now rendered in the backend's returned order
+  instead of being re-sorted by timestamp. After history compression, a freshly inserted
+  user message can carry a newer timestamp than the restored assistant/tool rows below it,
+  which made replies jump above their prompt. The PWA now trusts the backend order.
+
 ## 0.1.0 — 2026-06-28
 
 Initial public release — an installable, mobile-first PWA control plane for the
