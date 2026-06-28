@@ -14,6 +14,7 @@ User and operator documentation for the Hermes Mobile PWA.
 - [Rollback and reinstall](./ROLLBACK_AND_REINSTALL.md)
 - [Security & Privacy](./SECURITY.md)
 - [Third-party client guide](./THIRD_PARTY_CLIENT.md) — positioning, licensing, and the constraints this client operates under
+- [Planned improvements](./IMPROVEMENTS.md) — UX backlog and ideas worth borrowing from other Hermes frontends
 - [Architecture & coding rules](../ARCHITECTURE.md) · [Coding conventions](../CODING_RULES.md)
 
 ## Troubleshooting
