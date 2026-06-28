@@ -96,7 +96,9 @@ class UpdateCheckTests(unittest.TestCase):
         app.include_router(plugin_api.router)
         client = TestClient(app, headers={_SESSION_HEADER_NAME: _SESSION_TOKEN})
 
-        with patch.object(plugin_api, "_fetch_npm_latest_version", return_value="0.1.1"):
+        # Use a version clearly newer than any real package version (incl. prereleases
+        # like 0.1.1-beta) so this test does not depend on the current package.json.
+        with patch.object(plugin_api, "_fetch_npm_latest_version", return_value="99.0.0"):
             response = client.get("/update/check")
 
         self.assertEqual(response.status_code, 200)
