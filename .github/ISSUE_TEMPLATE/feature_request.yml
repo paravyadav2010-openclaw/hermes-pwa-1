@@ -1,0 +1,31 @@
+name: Feature request
+description: Suggest an improvement for Hermes Mobile
+title: "feat: "
+labels: [enhancement]
+body:
+  - type: textarea
+    id: problem
+    attributes:
+      label: Problem or use case
+      description: What are you trying to do from mobile, and what is missing today?
+    validations:
+      required: true
+  - type: textarea
+    id: proposal
+    attributes:
+      label: Proposed solution
+      description: Describe the behavior you want. Mockups or screenshots are welcome if they do not contain private data.
+    validations:
+      required: true
+  - type: textarea
+    id: alternatives
+    attributes:
+      label: Alternatives considered
+      description: Optional. Mention workarounds or different designs you considered.
+  - type: checkboxes
+    id: scope
+    attributes:
+      label: Scope check
+      options:
+        - label: This is for the mobile PWA/plugin, not Hermes Agent core.
+        - label: I understand this is an unofficial community client.
