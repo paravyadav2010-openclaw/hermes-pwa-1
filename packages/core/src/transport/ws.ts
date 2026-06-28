@@ -26,33 +26,52 @@ export function makeWsConnection(baseWsUrl: string): WsConnection {
       ws = null;
     }
 
-    const url = `${baseWsUrl}/api/ws`;
-    const socket = new WebSocket(url, [WS_TICKET_PROTOCOL, ticket]);
-    ws = socket;
+    let opened = false;
+    let legacyFallbackTried = false;
     onCloseRef = onClose;
 
-    socket.onopen = () => {
-      if (ws !== socket) return;
-      onOpen();
+    const openSocket = (legacyQueryTicket: boolean): void => {
+      const url = legacyQueryTicket
+        ? `${baseWsUrl}/api/ws?ticket=${encodeURIComponent(ticket)}`
+        : `${baseWsUrl}/api/ws`;
+      const socket = legacyQueryTicket ? new WebSocket(url) : new WebSocket(url, [WS_TICKET_PROTOCOL, ticket]);
+      ws = socket;
+
+      socket.onopen = () => {
+        if (ws !== socket) return;
+        opened = true;
+        onOpen();
+      };
+
+      socket.onmessage = (event) => {
+        if (ws !== socket) return;
+        const lines = String(event.data).split('\n').filter(Boolean);
+        for (const line of lines) {
+          onMessage(line);
+        }
+      };
+
+      socket.onclose = (event) => {
+        if (ws !== socket) return;
+
+        if (!opened && !legacyQueryTicket && !legacyFallbackTried) {
+          legacyFallbackTried = true;
+          socket.onclose = null;
+          ws = null;
+          openSocket(true);
+          return;
+        }
+
+        ws = null;
+        onCloseRef?.(event);
+      };
+
+      socket.onerror = () => {
+        // Let onclose handle cleanup and the pre-open legacy fallback.
+      };
     };
 
-    socket.onmessage = (event) => {
-      if (ws !== socket) return;
-      const lines = String(event.data).split('\n').filter(Boolean);
-      for (const line of lines) {
-        onMessage(line);
-      }
-    };
-
-    socket.onclose = (event) => {
-      if (ws !== socket) return;
-      ws = null;
-      onCloseRef?.(event);
-    };
-
-    socket.onerror = () => {
-      // Let onclose handle cleanup
-    };
+    openSocket(false);
   }
 
   function send(data: string): void {

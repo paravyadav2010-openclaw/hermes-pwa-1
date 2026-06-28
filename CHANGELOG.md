@@ -5,6 +5,17 @@ All notable changes are documented here. The format follows
 
 ## Unreleased
 
+## 0.1.2-beta — 2026-06-28
+
+### Fixed
+
+- **WebSocket connect compatibility with official Hermes backend.** The PWA sent the WS ticket
+  only as a subprotocol (`Sec-WebSocket-Protocol: hermes.ws-ticket, <ticket>`), but official
+  Hermes-Agent `main` accepts the ticket only as a query param (`/api/ws?ticket=<ticket>`), so a
+  fresh install could hang on `Connecting…`. The transport now keeps the subprotocol path as primary
+  (no ticket in the URL) and falls back **once** to the legacy query path if the first socket closes
+  before it opens. Post-open closes never trigger the fallback.
+
 ## 0.1.1-beta — 2026-06-28
 
 First beta. Marked beta to set expectations while it gets real-world testing.

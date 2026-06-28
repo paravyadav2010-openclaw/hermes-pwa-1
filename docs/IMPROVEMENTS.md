@@ -11,6 +11,30 @@ reference implementation. Where it does something we don't, it is credited below
 
 ---
 
+## Resolved
+
+### WebSocket ticket transport compatibility with official Hermes backend — fixed in 0.1.2-beta
+
+- **Discovered:** live post-update testing against Hermes-Agent `main` (`b699d27a`).
+- **Symptom:** a fresh install could hang forever on `Connecting…` against an auth-gated remote
+  Dashboard even though REST auth, `/api/auth/ws-ticket`, Dashboard, and gateway were all healthy.
+- **Root cause — transport contract mismatch:**
+  - the PWA sent the single-use WS ticket only as a subprotocol
+    (`Sec-WebSocket-Protocol: hermes.ws-ticket, <ticket>`) and connected to `/api/ws` with no ticket
+    in the URL;
+  - official Hermes-Agent `main` currently accepts only the legacy query path
+    `/api/ws?ticket=<ticket>` (`ws.query_params.get("ticket")` in `hermes_cli/web_server.py`); the
+    official WebUI on that commit also uses `?ticket=`. So upstream is self-consistent and our
+    subprotocol-only client was not compatible — it gets HTTP `403` (socket closes before open).
+- **Fix (`packages/core/src/transport/ws.ts`):** keep the subprotocol path as **primary** (it does
+  not leak the ticket through URLs/proxy logs), and add a **one-shot** fallback to
+  `/api/ws?ticket=<encoded-ticket>` **only if the primary closes before it ever opens**. Post-open
+  closes are normal runtime/reconnect failures and never trigger the fallback.
+- **Not done here (separate upstream work):** a Hermes-Agent backend patch that also accepts the
+  subprotocol ticket would be cleaner, but PWA publication must not depend on it landing first.
+
+---
+
 ## High value — borrow these
 
 ### 1. Cross-session full-text search

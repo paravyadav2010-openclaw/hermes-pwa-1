@@ -9,7 +9,7 @@ You install it like any other Dashboard plugin; it adds a **Mobile** tab and ser
 phone-native PWA from it. No separate app to host, no second login.
 Chat, approve actions, and watch your agent work from your phone, over your own private network.
 
-![Beta](https://img.shields.io/badge/release-0.1.1--beta-ff6f00?style=for-the-badge)
+![Beta](https://img.shields.io/badge/release-0.1.2--beta-ff6f00?style=for-the-badge)
 ![License: MIT](https://img.shields.io/badge/License-MIT-3da639?style=for-the-badge)
 ![PWA](https://img.shields.io/badge/PWA-installable-5a0fc8?style=for-the-badge)
 ![React + TypeScript](https://img.shields.io/badge/React%20%2B%20TypeScript-20232a?style=for-the-badge&logo=react)
@@ -29,7 +29,7 @@ Chat, approve actions, and watch your agent work from your phone, over your own 
 
 ---
 
-> 🧪 **Beta — `0.1.1-beta`.** Usable, and I run it daily, but expect rough edges. Please
+> 🧪 **Beta — `0.1.2-beta`.** Usable, and I run it daily, but expect rough edges. Please
 > [report anything that breaks](https://github.com/stasstepv/hermes-pwa/issues) — especially on iOS.
 
 ## 👋 Hey — a quick honest note

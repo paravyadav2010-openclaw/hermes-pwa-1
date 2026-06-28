@@ -37,6 +37,7 @@ class MockWebSocket {
   }
 
   simulateClose(code = 1000) {
+    this.readyState = 3;
     this.onclose?.({ code } as CloseEvent);
   }
 }
@@ -55,13 +56,55 @@ describe('makeWsConnection', () => {
     MockWebSocket.instances = [];
   });
 
-  it('constructs WebSocket without leaking the ticket in the URL', () => {
+  it('constructs the primary WebSocket without leaking the ticket in the URL', () => {
     const conn = makeWsConnection('wss://example.com');
     conn.connect('ticket-123', vi.fn(), vi.fn(), vi.fn());
     expect(MockWebSocket.instances).toHaveLength(1);
     expect(MockWebSocket.instances[0]!.url).toBe('wss://example.com/api/ws');
     expect(MockWebSocket.instances[0]!.url).not.toContain('ticket-123');
     expect(MockWebSocket.instances[0]!.protocols).toEqual(['hermes.ws-ticket', 'ticket-123']);
+  });
+
+  it('falls back once to the upstream legacy query-ticket transport when the primary closes before open', () => {
+    const onOpen = vi.fn();
+    const onClose = vi.fn();
+    const conn = makeWsConnection('wss://example.com');
+
+    conn.connect('ticket with spaces', onOpen, vi.fn(), onClose);
+    const primary = MockWebSocket.instances[0]!;
+    primary.simulateClose(1006);
+
+    expect(onClose).not.toHaveBeenCalled();
+    expect(MockWebSocket.instances).toHaveLength(2);
+    expect(MockWebSocket.instances[1]!.url).toBe('wss://example.com/api/ws?ticket=ticket%20with%20spaces');
+    expect(MockWebSocket.instances[1]!.protocols).toBeUndefined();
+
+    MockWebSocket.instances[1]!.simulateOpen();
+    expect(onOpen).toHaveBeenCalledTimes(1);
+  });
+
+  it('does not retry legacy fallback more than once for the same ticket', () => {
+    const onClose = vi.fn();
+    const conn = makeWsConnection('wss://example.com');
+
+    conn.connect('ticket-123', vi.fn(), vi.fn(), onClose);
+    MockWebSocket.instances[0]!.simulateClose(1006);
+    MockWebSocket.instances[1]!.simulateClose(1006);
+
+    expect(MockWebSocket.instances).toHaveLength(2);
+    expect(onClose).toHaveBeenCalledTimes(1);
+  });
+
+  it('does not fall back to query-ticket after the primary socket has opened', () => {
+    const onClose = vi.fn();
+    const conn = makeWsConnection('wss://example.com');
+
+    conn.connect('ticket-123', vi.fn(), vi.fn(), onClose);
+    MockWebSocket.instances[0]!.simulateOpen();
+    MockWebSocket.instances[0]!.simulateClose(1006);
+
+    expect(MockWebSocket.instances).toHaveLength(1);
+    expect(onClose).toHaveBeenCalledTimes(1);
   });
 
   it('calls onOpen when ws opens', () => {
@@ -82,10 +125,11 @@ describe('makeWsConnection', () => {
     expect(onMessage).toHaveBeenNthCalledWith(2, 'line2');
   });
 
-  it('calls onClose when ws closes', () => {
+  it('calls onClose when an opened ws closes', () => {
     const onClose = vi.fn();
     const conn = makeWsConnection('wss://example.com');
     conn.connect('t', vi.fn(), vi.fn(), onClose);
+    MockWebSocket.instances[0]!.simulateOpen();
     MockWebSocket.instances[0]!.simulateClose();
     expect(onClose).toHaveBeenCalled();
   });

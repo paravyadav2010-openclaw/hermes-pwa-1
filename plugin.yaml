@@ -1,5 +1,5 @@
 name: hermes-pwa
-version: 0.1.1-beta
+version: 0.1.2-beta
 description: Installable mobile PWA client for Hermes Dashboard
 provides_tools: []
 provides_hooks:
