@@ -907,7 +907,6 @@ function sameKnownLineage(a: string | undefined, b: string | undefined): boolean
 }
 
 function preserveLineageTail(opened: Awaited<ReturnType<typeof openDurableSession>>, before: ChatStateAnchor) {
-  if (!sameKnownLineage(before.storedSessionId, opened.storedSessionId)) return opened;
   const merged = mergeHistoryWithLocal(opened.messages, before.messages);
   const meaningfulTail = dropPendingOptimisticTail(merged.preservedLocalTail);
   return { ...opened, messages: [...opened.messages, ...meaningfulTail] };
@@ -951,9 +950,12 @@ async function refreshDurableHistory(rest: RestClient, durableSessionId: string,
   const raw = await rest.sessionMessages(openableSessionId, profile);
   const storedSessionId = storedSessionIdFromMessagesResult(raw, openableSessionId);
   const history = messagesFromResult(raw);
-  const merged = openableSessionId === durableSessionId
-    ? mergeHistoryWithLocal(history, localMessages)
-    : { messages: history, preservedLocalTail: [] };
+  // Always merge local messages into the server snapshot, regardless of
+  // whether session IDs match. The local state is the user's truth — it
+  // may have messages the backend hasn't persisted yet (recent turns,
+  // unflushed streaming responses). Without this, session ID rotation
+  // after compression silently drops the local transcript.
+  const merged = mergeHistoryWithLocal(history, localMessages);
   return { storedSessionId, messages: merged.messages };
 }
 
@@ -1002,13 +1004,7 @@ export const useChatStore = create<ChatStore>((set, get) => ({
     const cacheProfile = resolveCacheProfile(profile, get().cacheProfile);
     if (cacheProfile !== get().cacheProfile) set({ cacheProfile });
     const before = get();
-    // If the WebSocket died while the app was backgrounded, `streaming` can be
-    // stuck true with no live deltas arriving. Don't skip the REST refresh in
-    // that case — the backend snapshot is the only way to recover the assistant
-    // response. The refresh itself sets streaming: false.
-    if (before.streaming && typeof document !== 'undefined' && document.visibilityState === 'visible') {
-      // App is visible again; force a refresh to pick up missed responses.
-    } else if (before.streaming) {
+    if (before.streaming) {
       return;
     }
     const durableSessionId = before.storedSessionId ?? before.sessionId;
@@ -1017,14 +1013,16 @@ export const useChatStore = create<ChatStore>((set, get) => ({
     try {
       const refreshed = await refreshDurableHistory(rest, durableSessionId, before.messages, cacheProfile);
       if (!isSameChatState(get(), anchor)) return;
+      // Only update storedSessionId — never replace messages from the server.
+      // The local transcript is always the source of truth; server history
+      // refreshes can race with in-progress turns and silently drop messages.
       const next = {
         storedSessionId: refreshed.storedSessionId,
-        messages: refreshed.messages,
-        streaming: false,
-        error: undefined,
       };
-      set(next);
-      persistActiveSession({ ...get(), ...next });
+      if (refreshed.storedSessionId !== before.storedSessionId) {
+        set(next);
+        persistActiveSession({ ...get(), ...next });
+      }
     } catch {
       // Best-effort background reconciliation. The cached transcript remains a
       // valid offline fallback if the REST snapshot is temporarily unavailable.

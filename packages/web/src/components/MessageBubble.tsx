@@ -74,7 +74,7 @@ function MessageBubbleView({ message, rpc, isLast, streaming, liveStatus, liveFa
   if (isUser) {
     return (
       <div className="hm-message hm-message--user">
-        <p>{message.text}</p>
+        <ReactMarkdown components={MARKDOWN_COMPONENTS}>{message.text}</ReactMarkdown>
       </div>
     );
   }

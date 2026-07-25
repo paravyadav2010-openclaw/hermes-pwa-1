@@ -252,7 +252,7 @@ export function AppShell({ connectionState, rpc, rest, onRetry }: AppShellProps)
   const { profiles, load: loadProfiles } = useProfilesStore();
   const { sessions, load } = useSessionsStore();
   const { sessionId, storedSessionId } = useChatStore();
-  const { startNewSession } = useChatStore();
+  const { startNewSession, messages } = useChatStore();
   const addActivityItem = useActivityStore((s) => s.addItem);
   const loadActivity = useActivityStore((s) => s.load);
   const pendingApprovals = useActivityStore(
@@ -643,7 +643,7 @@ export function AppShell({ connectionState, rpc, rest, onRetry }: AppShellProps)
       <main className="hm-screen" ref={screenRef}>
         <LazyScreenErrorBoundary key={screen}>
           <Suspense fallback={<p className="hm-muted hm-loading">Loading…</p>}>
-            {screen === 'chat'      && <Chat key={activeName ?? 'default'} rpc={rpc} rest={rest} />}
+            {screen === 'chat'      && <Chat key={activeName ?? 'default'} rpc={rpc} rest={rest} onNavigate={(s) => navigate(s as Screen)} />}
             {screen === 'sessions'  && <Sessions key={activeName ?? 'default'} rpc={rpc} rest={rest} onSessionOpen={() => navigate('chat')} />}
             {screen === 'approvals' && <Activity key={activeName ?? 'default'} rpc={rpc} />}
             {screen === 'kanban'    && <Projects key={activeName ?? 'default'} rest={rest} />}

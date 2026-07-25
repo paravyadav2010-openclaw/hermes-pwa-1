@@ -13,6 +13,7 @@ import {
 } from '@hermes-pwa/core';
 import { MessageBubble } from '../components/MessageBubble';
 import { Composer } from '../components/Composer';
+import { ProfileModelBar } from '../components/ProfileModelBar';
 import {
   MAX_ATTACHMENT_BYTES,
   attachmentTooLargeMessage,
@@ -27,6 +28,7 @@ import { pendingApprovalsForMessage, selectPendingApprovals } from '../lib/pendi
 interface ChatProps {
   rpc: RpcClient;
   rest: RestClient;
+  onNavigate?: (screen: string) => void;
 }
 
 type BusyInputMode = 'queue' | 'steer' | 'interrupt';
@@ -85,7 +87,7 @@ function isNonChatStatus(kind: string, payload: Record<string, unknown> | undefi
   return NON_CHAT_STATUS_TEXT.test(rawText);
 }
 
-export function Chat({ rpc, rest }: ChatProps) {
+export function Chat({ rpc, rest, onNavigate }: ChatProps) {
   const {
     messages,
     streaming,
@@ -106,6 +108,7 @@ export function Chat({ rpc, rest }: ChatProps) {
   const activeName = useProfilesStore((s) => s.activeName);
   const currentName = useProfilesStore((s) => s.currentName);
   const connection = useConnectionStore();
+  const profiles = useProfilesStore((s) => s.profiles);
   const listRef = useRef<HTMLDivElement>(null);
   const atBottomRef = useRef(true);
   const forceScrollRef = useRef(false);
@@ -161,7 +164,9 @@ export function Chat({ rpc, rest }: ChatProps) {
     if (activeName && activeName !== currentName) {
       // The gateway is running a different profile; avoid auto-restoring a session
       // that belongs to the selected profile over a single-profile WebSocket.
-      useChatStore.getState().clear(activeName);
+      // Clear only the profile reference, NOT the cached messages — the user
+      // should still see their transcript even if the gateway profile doesn't
+      // match the PWA's selection.
       void load(rest);
       initialRestoreDoneRef.current = true;
       return;
@@ -169,6 +174,13 @@ export function Chat({ rpc, rest }: ChatProps) {
 
     let cancelled = false;
     void (async () => {
+      // If messages are already loaded (e.g. via resumeSessionIntoChat), don't
+      // overwrite them with stale localStorage cache. The cache persist is
+      // throttled (1000ms) and may not have caught up yet.
+      if (useChatStore.getState().messages.length > 0 && useChatStore.getState().storedSessionId) {
+        initialRestoreDoneRef.current = true;
+        return;
+      }
       // Restore depends on the session list for openable-head resolution. Loading
       // first lets the chat resolve the current compressed head instead of stale
       // cached/tool-only history.
@@ -655,6 +667,7 @@ export function Chat({ rpc, rest }: ChatProps) {
   }
 
   return (
+    <>
     <div className="hm-chat">
       <div
         className="hm-chat__messages hm-scroll"
@@ -718,6 +731,22 @@ export function Chat({ rpc, rest }: ChatProps) {
         onUploadFile={handleUploadFile}
         onLayoutChange={handleComposerLayoutChange}
       />
-    </div>
+      </div>
+      <div className="hm-chat__bar-area">
+      <ProfileModelBar
+        profiles={profiles}
+        activeName={activeName}
+        messages={messages}
+        rpc={rpc}
+        sessionId={sessionId}
+        modelLabel={modelLabel}
+        providerLabel={activeProfile?.provider ?? ''}
+        rest={rest}
+        onModelChange={(provider, model) => {
+          if (activeName) useProfilesStore.getState().setModel(rest, activeName, provider, model).catch(() => {});
+        }}
+      />
+      </div>
+    </>
   );
 }
