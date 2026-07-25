@@ -140,7 +140,7 @@ export function ProfileModelBar({
       } catch { /* silent */ }
     }
     void fetchCtx();
-    const interval = setInterval(fetchCtx, 10_000);
+    const interval = setInterval(fetchCtx, 2_000);
     return () => { cancelled = true; clearInterval(interval); };
   }, [rpc, sessionId, contextLimit]);
 
