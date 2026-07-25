@@ -51,6 +51,33 @@ describe('MessageBubble', () => {
     expect(screen.getByText('paragraph')).toBeInTheDocument();
   });
 
+  it('shows timestamp and copy control on completed assistant responses', () => {
+    const createdAt = new Date('2026-07-25T10:15:00').getTime();
+    render(
+      <MessageBubble
+        rpc={rpcMock}
+        streaming={false}
+        message={{ id: '2-meta', role: 'assistant', text: 'Ship it', createdAt }}
+      />,
+    );
+    expect(screen.getByRole('button', { name: /Copy response/i })).toBeInTheDocument();
+    expect(screen.getByText(/Ship it/)).toBeInTheDocument();
+    const time = screen.getByText((_, el) => el?.tagName.toLowerCase() === 'time');
+    expect(time).toBeInTheDocument();
+  });
+
+  it('hides copy meta while assistant is still streaming', () => {
+    render(
+      <MessageBubble
+        rpc={rpcMock}
+        streaming
+        isLast
+        message={{ id: '2-stream-meta', role: 'assistant', text: 'partial', createdAt: Date.now() }}
+      />,
+    );
+    expect(screen.queryByRole('button', { name: /Copy response/i })).not.toBeInTheDocument();
+  });
+
   it('opens markdown links without opener access', () => {
     render(
       <MessageBubble
@@ -85,7 +112,8 @@ describe('MessageBubble', () => {
         }}
       />,
     );
-    expect(screen.getByText('Search')).toBeInTheDocument();
+    expect(screen.getByText('Tool actions')).toBeInTheDocument();
+    expect(screen.getByText(/Search/)).toBeInTheDocument();
   });
 
   it('keeps inline approval visible for a pending tool after restore clears streaming', () => {
@@ -356,7 +384,7 @@ describe('MessageBubble', () => {
     );
 
     expect(screen.getByText('Check manually:')).toBeInTheDocument();
-    expect(screen.getByText(/\[x\] item stays as regular markdown/)).toBeInTheDocument();
+    expect(screen.getByText(/item stays as regular markdown/)).toBeInTheDocument();
   });
 
   it('renders app icon and inline live status with animated activity dots', () => {

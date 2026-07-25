@@ -75,7 +75,7 @@ export const useModelStore = create<ModelStore>((set, get) => ({
         ? await rest.profileUpdateModel(profile, {
             provider,
             model,
-            ...(reasoningEffort ? { reasoning_effort: reasoningEffort } : {}),
+            ...(reasoningEffort !== undefined ? { reasoning_effort: reasoningEffort } : {}),
             ...(showReasoning !== undefined ? { show_reasoning: showReasoning } : {}),
           })
         : await rest.modelSet({

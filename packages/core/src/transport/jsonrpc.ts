@@ -63,6 +63,7 @@ export type RpcEventHandler = (event: RpcEvent) => void;
 const KNOWN_GATEWAY_EVENT_TYPES = new Set([
   'gateway.ready',
   'session.info',
+  'session.title',
   'message.start',
   'message.delta',
   'message.complete',

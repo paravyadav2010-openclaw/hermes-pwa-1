@@ -1,6 +1,6 @@
 import { Suspense, lazy, useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import type { Approval, Clarify, ConnectionState, RpcClient, RestClient, RpcEvent, Session, UpdateCheck } from '@hermes-pwa/core';
-import { connectionStateLabel, sessionSourceId, sessionSourceLabel, useActivityStore, useProfilesStore, useSessionsStore, useChatStore, useConnectionStore, useProjectsStore } from '@hermes-pwa/core';
+import { connectionStateLabel, isPlaceholderSessionTitle, sessionSourceId, sessionSourceLabel, useActivityStore, useProfilesStore, useSessionsStore, useChatStore, useConnectionStore, useProjectsStore } from '@hermes-pwa/core';
 import { Home } from '../screens/Home';
 import { ConnectionBanner } from '../components/ConnectionBanner';
 import { Icon, type IconName } from '../components/Icon';
@@ -251,7 +251,7 @@ export function AppShell({ connectionState, rpc, rest, onRetry }: AppShellProps)
   const currentName = useProfilesStore((s) => s.currentName);
   const { profiles, load: loadProfiles } = useProfilesStore();
   const { sessions, load } = useSessionsStore();
-  const { sessionId, storedSessionId } = useChatStore();
+  const { sessionId, storedSessionId, chatTitle } = useChatStore();
   const { startNewSession, messages } = useChatStore();
   const addActivityItem = useActivityStore((s) => s.addItem);
   const loadActivity = useActivityStore((s) => s.load);
@@ -265,7 +265,15 @@ export function AppShell({ connectionState, rpc, rest, onRetry }: AppShellProps)
     if (sessionId && (s.id === sessionId || s.lineageRootId === sessionId)) return true;
     return false;
   });
-  const screenTitle = screen === 'chat' && currentSession?.title ? currentSession.title : SCREEN_TITLES[screen];
+  // Prefer live chat title (updates as you send / when gateway auto-titles).
+  const sessionTitle = currentSession?.title?.trim();
+  const screenTitle =
+    screen === 'chat'
+      ? chatTitle?.trim() ||
+        (!isPlaceholderSessionTitle(sessionTitle) ? sessionTitle : undefined) ||
+        sessionTitle ||
+        SCREEN_TITLES[screen]
+      : SCREEN_TITLES[screen];
   const menuRef = useRef<HTMLButtonElement>(null);
   const drawerPanelRef = useRef<HTMLElement>(null);
   const drawerCloseRef = useRef<HTMLButtonElement>(null);
@@ -547,7 +555,7 @@ export function AppShell({ connectionState, rpc, rest, onRetry }: AppShellProps)
     setDrawerOpen(false);
   }
 
-  const TAB_ORDER: Screen[] = ['chat', 'sessions', 'home', 'approvals', 'kanban'];
+  const TAB_ORDER: Screen[] = ['sessions', 'chat', 'home', 'kanban', 'settings'];
 
   useSwipeGesture(screenRef, {
     onSwipeRight: () => {
@@ -791,15 +799,6 @@ export function AppShell({ connectionState, rpc, rest, onRetry }: AppShellProps)
       {/* ── Bottom Bar ────────────────────────────────────────────── */}
       <nav className="hm-bottom-bar" role="navigation" aria-label="Main navigation">
         <button
-          className={`hm-bottom-bar__tab${screen === 'chat' ? ' hm-bottom-bar__tab--active' : ''}`}
-          onClick={() => navigate('chat')}
-          aria-label="Chat"
-          aria-current={screen === 'chat' ? 'page' : undefined}
-        >
-          <Icon name="chat" size={22} />
-          <span className="hm-bottom-bar__label">Chat</span>
-        </button>
-        <button
           className={`hm-bottom-bar__tab${screen === 'sessions' ? ' hm-bottom-bar__tab--active' : ''}`}
           onClick={() => navigate('sessions')}
           aria-label="Sessions"
@@ -807,6 +806,15 @@ export function AppShell({ connectionState, rpc, rest, onRetry }: AppShellProps)
         >
           <Icon name="sessions" size={22} />
           <span className="hm-bottom-bar__label">Sessions</span>
+        </button>
+        <button
+          className={`hm-bottom-bar__tab${screen === 'chat' ? ' hm-bottom-bar__tab--active' : ''}`}
+          onClick={() => navigate('chat')}
+          aria-label="Chat"
+          aria-current={screen === 'chat' ? 'page' : undefined}
+        >
+          <Icon name="chat" size={22} />
+          <span className="hm-bottom-bar__label">Chat</span>
         </button>
         <button
           className={`hm-bottom-bar__tab hm-bottom-bar__tab--home${screen === 'home' ? ' hm-bottom-bar__tab--active' : ''}`}
@@ -819,20 +827,6 @@ export function AppShell({ connectionState, rpc, rest, onRetry }: AppShellProps)
           </span>
         </button>
         <button
-          className={`hm-bottom-bar__tab${screen === 'approvals' ? ' hm-bottom-bar__tab--active' : ''}`}
-          onClick={() => navigate('approvals')}
-          aria-label="Approvals"
-          aria-current={screen === 'approvals' ? 'page' : undefined}
-        >
-          <span className="hm-bottom-bar__icon-wrap">
-            <Icon name="shield" size={22} />
-            {pendingApprovals > 0 && (
-              <span className="hm-bottom-bar__badge">{pendingApprovals}</span>
-            )}
-          </span>
-          <span className="hm-bottom-bar__label">Approvals</span>
-        </button>
-        <button
           className={`hm-bottom-bar__tab${screen === 'kanban' ? ' hm-bottom-bar__tab--active' : ''}`}
           onClick={() => navigate('kanban')}
           aria-label="Kanban"
@@ -840,6 +834,15 @@ export function AppShell({ connectionState, rpc, rest, onRetry }: AppShellProps)
         >
           <Icon name="kanban" size={22} />
           <span className="hm-bottom-bar__label">Kanban</span>
+        </button>
+        <button
+          className={`hm-bottom-bar__tab${screen === 'settings' ? ' hm-bottom-bar__tab--active' : ''}`}
+          onClick={() => navigate('settings')}
+          aria-label="Settings"
+          aria-current={screen === 'settings' ? 'page' : undefined}
+        >
+          <Icon name="settings" size={22} />
+          <span className="hm-bottom-bar__label">Settings</span>
         </button>
       </nav>
     </div>

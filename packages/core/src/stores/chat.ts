@@ -97,11 +97,14 @@ export interface ChatStore {
   messages: Message[];
   streaming: boolean;
   error: string | undefined;
+  /** Live header title for the open chat (updates immediately on send / session.title). */
+  chatTitle: string | undefined;
 
   /** Internal cache scope; not shown in UI. */
   cacheProfile: string | undefined;
 
   setSessionId(id: string | undefined, storedSessionId?: string | undefined): void;
+  setChatTitle(title: string | undefined): void;
   loadHistory(rest: RestClient, sessionId: string): Promise<void>;
   refreshHistory(rest: RestClient, profile?: string): Promise<void>;
   restore(rest: RestClient, rpc: RpcClient, profile?: string): Promise<void>;
@@ -127,6 +130,8 @@ interface InternalMessage extends Message {
   /** Populated for raw tool messages so we can attach their output to the matching assistant tool call. */
   toolCallId?: string | undefined;
   toolName?: string | undefined;
+  /** After tools run, the next reasoning.delta starts a new thinking block. */
+  thinkingNeedsNewPart?: boolean | undefined;
 }
 
 type ActiveSessionPersistState = Pick<ChatStore, 'sessionId' | 'storedSessionId' | 'messages' | 'streaming'> & {
@@ -261,6 +266,16 @@ function toInternalMessage(raw: Record<string, unknown>, index = 0): InternalMes
   if (toolCalls) msg.toolCalls = toolCalls;
   const thinking = messageContentText(raw.thinking ?? raw.reasoning ?? raw.reasoning_content ?? raw.reasoningContent);
   if (thinking) msg.thinking = thinking;
+  const rawParts = raw.thinking_parts ?? raw.thinkingParts;
+  if (Array.isArray(rawParts)) {
+    const parts = rawParts.filter((p): p is string => typeof p === 'string' && p.trim().length > 0);
+    if (parts.length > 0) {
+      msg.thinkingParts = parts;
+      if (!msg.thinking) msg.thinking = parts.join('\n\n');
+    }
+  } else if (thinking) {
+    msg.thinkingParts = [thinking];
+  }
   return msg;
 }
 
@@ -273,6 +288,7 @@ function toPublicMessage(m: InternalMessage): Message {
   };
   if (m.toolCalls) msg.toolCalls = m.toolCalls;
   if (m.thinking) msg.thinking = m.thinking;
+  if (m.thinkingParts && m.thinkingParts.length > 0) msg.thinkingParts = m.thinkingParts;
   return msg;
 }
 
@@ -408,6 +424,14 @@ function isDuplicateReasoning(reasoning: string | undefined, answer: string | un
   if (a.length >= 40 && r.includes(a)) return true;
   if (r.length < 80 || a.length < 80) return false;
   return r.startsWith(a) || a.startsWith(r);
+}
+
+/** Stricter: only true when normalized reasoning is exactly the answer. */
+function isExactDuplicateReasoning(reasoning: string | undefined, answer: string | undefined): boolean {
+  if (!reasoning || !answer) return false;
+  const r = normalizeReasoningComparable(reasoning);
+  const a = normalizeReasoningComparable(answer);
+  return Boolean(r && a && r === a);
 }
 
 function messageFingerprint(message: Message): string {
@@ -595,6 +619,56 @@ function isPwaSlashSuggestion(command: string): boolean {
 function slashStatusText(command: string, output: string | undefined): string {
   const body = stripAnsi(output ?? '') || '(no output)';
   return `**${command}**\n\n${body}`;
+}
+
+function formatSessionCompressResult(raw: unknown): string {
+  if (!raw || typeof raw !== 'object') return '(no output)';
+  const record = raw as Record<string, unknown>;
+  const lines: string[] = [];
+
+  const summary = record.summary && typeof record.summary === 'object'
+    ? (record.summary as Record<string, unknown>)
+    : undefined;
+  if (summary) {
+    if (typeof summary.headline === 'string' && summary.headline.trim()) lines.push(summary.headline.trim());
+    if (typeof summary.token_line === 'string' && summary.token_line.trim()) lines.push(summary.token_line.trim());
+    if (typeof summary.note === 'string' && summary.note.trim()) lines.push(summary.note.trim());
+  }
+
+  if (lines.length === 0) {
+    const status = typeof record.status === 'string' ? record.status : 'compressed';
+    const before = typeof record.before_messages === 'number' ? record.before_messages : undefined;
+    const after = typeof record.after_messages === 'number' ? record.after_messages : undefined;
+    if (before !== undefined && after !== undefined) {
+      lines.push(`${status}: ${before} → ${after} messages`);
+    } else {
+      lines.push(status);
+    }
+    const beforeTok = typeof record.before_tokens === 'number' ? record.before_tokens : undefined;
+    const afterTok = typeof record.after_tokens === 'number' ? record.after_tokens : undefined;
+    if (beforeTok !== undefined && afterTok !== undefined) {
+      lines.push(`Approx request size: ~${beforeTok.toLocaleString()} → ~${afterTok.toLocaleString()} tokens`);
+    }
+  }
+
+  if (typeof record.output === 'string' && record.output.trim()) {
+    lines.push(record.output.trim());
+  }
+
+  return lines.join('\n').trim() || '(no output)';
+}
+
+function extractSlashOutput(raw: unknown): string | undefined {
+  if (!raw || typeof raw !== 'object') return undefined;
+  const record = raw as Record<string, unknown>;
+  if (typeof record.output === 'string') return record.output;
+  if (typeof record.result === 'string') return record.result;
+  if (typeof record.message === 'string') return record.message;
+  // Structured compress / session RPCs often omit `output`.
+  if (record.summary || record.before_messages !== undefined || record.status === 'compressed') {
+    return formatSessionCompressResult(raw);
+  }
+  return undefined;
 }
 
 function renderPwaCommandsCatalog(raw: unknown): string {
@@ -967,12 +1041,18 @@ export const useChatStore = create<ChatStore>((set, get) => ({
   messages: initialCache.messages,
   streaming: initialCache.streaming,
   error: undefined,
+  chatTitle: undefined,
   cacheProfile: initialCache.profile,
 
   setSessionId(id, storedSessionId) {
-    const next = { sessionId: id, storedSessionId, messages: [] as Message[], error: undefined };
+    const next = { sessionId: id, storedSessionId, messages: [] as Message[], error: undefined, chatTitle: undefined };
     set(next);
     persistActiveSession({ ...get(), ...next });
+  },
+
+  setChatTitle(title) {
+    const nextTitle = typeof title === 'string' ? title.replace(/\s+/g, ' ').trim() : '';
+    set({ chatTitle: nextTitle || undefined });
   },
 
   async loadHistory(rest, sessionId) {
@@ -1236,19 +1316,95 @@ export const useChatStore = create<ChatStore>((set, get) => ({
       }
     }
 
+    // Prefer session.compress — returns structured summary; slash.exec live path
+    // can return empty when agent handle is missing after resume.
+    if (parsed.name === 'compress') {
+      try {
+        const live = await get().ensureLiveSession(rpc, cacheProfile);
+        let sessionId = live.sessionId;
+        const params: Record<string, unknown> = { session_id: sessionId };
+        const focus = parsed.arg?.trim();
+        if (focus) params.focus_topic = focus;
+
+        const runCompress = async () =>
+          rpc.request<unknown>('session.compress', params, { timeoutMs: LONG_RPC_TIMEOUT_MS });
+
+        let result: unknown;
+        try {
+          result = await runCompress();
+        } catch (err) {
+          if (!isSessionNotFoundError(err)) throw err;
+          const replacement = await replaceMissingLiveSession(rpc, get().storedSessionId, cacheProfile);
+          sessionId = replacement.sessionId;
+          params.session_id = sessionId;
+          const nextSession = {
+            sessionId: replacement.sessionId,
+            storedSessionId: replacement.storedSessionId,
+            streaming: false,
+            error: undefined,
+          };
+          set(nextSession);
+          persistActiveSession({ ...get(), ...nextSession });
+          result = await runCompress();
+        }
+
+        // Compress rotates live/durable ids — pick up from info payload when present.
+        if (result && typeof result === 'object') {
+          const record = result as Record<string, unknown>;
+          const info = record.info && typeof record.info === 'object'
+            ? (record.info as Record<string, unknown>)
+            : undefined;
+          const nextLive =
+            (typeof record.session_id === 'string' && record.session_id) ||
+            (typeof info?.session_id === 'string' && info.session_id) ||
+            (typeof info?.id === 'string' && info.id) ||
+            undefined;
+          const nextDurable =
+            durableSessionIdFromResult(result, get().storedSessionId) ||
+            (info ? durableSessionIdFromResult(info, get().storedSessionId) : get().storedSessionId);
+          if (nextLive || (nextDurable && nextDurable !== get().storedSessionId)) {
+            const patched = {
+              sessionId: nextLive ?? get().sessionId,
+              storedSessionId: nextDurable ?? get().storedSessionId,
+            };
+            set(patched);
+            persistActiveSession({ ...get(), ...patched });
+          }
+        }
+
+        renderSlashOutput(parsed.command, formatSessionCompressResult(result));
+        return 'submitted';
+      } catch (err) {
+        const detail = userFacingChatError(err, 'Compression failed.');
+        set({ streaming: false, error: detail });
+        persistActiveSession(get());
+        renderSlashOutput(parsed.command, `error: ${detail}`);
+        return 'failed';
+      }
+    }
+
     try {
-      let { sessionId, storedSessionId } = get();
-      if (!sessionId) {
-        const replacement = await replaceMissingLiveSession(rpc, storedSessionId, cacheProfile);
+      // Stale live ids are common after background freeze / dashboard restart /
+      // prior compression. Validate or rebind before slash RPCs (same as send).
+      const live = await get().ensureLiveSession(rpc, cacheProfile);
+      let sessionId = live.sessionId;
+
+      const rebindLiveSession = async () => {
+        const replacement = await replaceMissingLiveSession(rpc, get().storedSessionId, cacheProfile);
         sessionId = replacement.sessionId;
-        storedSessionId = replacement.storedSessionId;
-        const nextSession = { sessionId, storedSessionId, streaming: false, error: undefined };
+        const nextSession = {
+          sessionId: replacement.sessionId,
+          storedSessionId: replacement.storedSessionId,
+          streaming: false,
+          error: undefined,
+        };
         set(nextSession);
         persistActiveSession({ ...get(), ...nextSession });
-      }
+        return replacement.sessionId;
+      };
 
-      try {
-        const result = await rpc.request<SlashExecResponse>(
+      const runSlashExec = async () =>
+        rpc.request<SlashExecResponse>(
           'slash.exec',
           {
             session_id: sessionId,
@@ -1256,21 +1412,64 @@ export const useChatStore = create<ChatStore>((set, get) => ({
           },
           { timeoutMs: LONG_RPC_TIMEOUT_MS },
         );
-        const output = result?.warning ? `warning: ${result.warning}\n${result.output ?? ''}` : result?.output;
+
+      try {
+        let result: SlashExecResponse;
+        try {
+          result = await runSlashExec();
+        } catch (slashErr) {
+          if (!isSessionNotFoundError(slashErr)) throw slashErr;
+          await rebindLiveSession();
+          result = await runSlashExec();
+        }
+        const output = result?.warning
+          ? `warning: ${result.warning}\n${extractSlashOutput(result) ?? result.output ?? ''}`
+          : extractSlashOutput(result);
+        // Compression / branch can rotate durable + live ids — pick up if present.
+        if (result && typeof result === 'object') {
+          const record = result as Record<string, unknown>;
+          const nextLive =
+            typeof record.session_id === 'string' && record.session_id
+              ? record.session_id
+              : typeof record.id === 'string' && record.id
+                ? record.id
+                : undefined;
+          const nextDurable = durableSessionIdFromResult(result, get().storedSessionId);
+          if (nextLive || (nextDurable && nextDurable !== get().storedSessionId)) {
+            const patched = {
+              sessionId: nextLive ?? get().sessionId,
+              storedSessionId: nextDurable ?? get().storedSessionId,
+            };
+            set(patched);
+            persistActiveSession({ ...get(), ...patched });
+          }
+        }
         renderSlashOutput(parsed.command, output);
         return 'submitted';
-      } catch {
+      } catch (slashExecErr) {
         // slash.exec deliberately rejects skill/send/alias and some mutating commands.
         // Fall back to the Desktop-compatible dispatcher for those structured cases.
+        // Session-not-found after rebind is a real failure — surface it.
+        if (isSessionNotFoundError(slashExecErr)) throw slashExecErr;
       }
 
-      const dispatch = parseCommandDispatch(
-        await rpc.request<unknown>(
+      const runCommandDispatch = async () =>
+        rpc.request<unknown>(
           'command.dispatch',
           { session_id: sessionId, name: parsed.name, arg: parsed.arg },
           { timeoutMs: LONG_RPC_TIMEOUT_MS },
-        ),
-      );
+        );
+
+      let dispatchRaw: unknown;
+      try {
+        dispatchRaw = await runCommandDispatch();
+      } catch (dispatchErr) {
+        if (!isSessionNotFoundError(dispatchErr)) throw dispatchErr;
+        await rebindLiveSession();
+        dispatchRaw = await runCommandDispatch();
+      }
+
+      const dispatch = parseCommandDispatch(dispatchRaw);
 
       if (!dispatch) {
         renderSlashOutput(parsed.command, 'error: invalid response: command.dispatch');
@@ -1366,8 +1565,8 @@ export const useChatStore = create<ChatStore>((set, get) => ({
         const now = Date.now();
         const nextMessages = [
           ...messages,
-          { id: `u-${now}`, role: 'user' as const, text, createdAt: undefined },
-          { id: nextAssistantMessageId(), role: 'assistant' as const, text: '', createdAt: undefined },
+          { id: `u-${now}`, role: 'user' as const, text, createdAt: now },
+          { id: nextAssistantMessageId(), role: 'assistant' as const, text: '', createdAt: now },
         ];
 
         const optimistic = {
@@ -1489,13 +1688,31 @@ export const useChatStore = create<ChatStore>((set, get) => ({
   finishAssistant(finalText) {
     set((state) => {
       const msgs = [...state.messages];
-      const last = msgs[msgs.length - 1];
+      const last = msgs[msgs.length - 1] as InternalMessage | undefined;
       if (last && last.role === 'assistant') {
         const text = typeof finalText === 'string' && finalText.trim() ? finalText.trim() : last.text;
-        const nextLast = { ...last, text };
-        if (isDuplicateReasoning(nextLast.thinking, text)) {
-          delete nextLast.thinking;
+        const nextLast: InternalMessage = {
+          ...last,
+          text,
+          createdAt: Date.now(),
+        };
+        // Only drop thinking when it is a pure echo of the final answer.
+        // Multi-phase reasoning (thinkingParts > 1) always stays visible like tool actions.
+        const parts = nextLast.thinkingParts?.filter((p) => p.trim()) ?? [];
+        if (parts.length > 1) {
+          nextLast.thinking = parts.join('\n\n');
+          nextLast.thinkingParts = parts;
+        } else {
+          const single = parts[0] ?? nextLast.thinking;
+          if (isExactDuplicateReasoning(single, text)) {
+            delete nextLast.thinking;
+            delete nextLast.thinkingParts;
+          } else if (single?.trim()) {
+            nextLast.thinking = single;
+            nextLast.thinkingParts = [single];
+          }
         }
+        delete nextLast.thinkingNeedsNewPart;
         msgs[msgs.length - 1] = nextLast;
       }
       const next = { streaming: false, messages: msgs };
@@ -1534,7 +1751,13 @@ export const useChatStore = create<ChatStore>((set, get) => ({
         const existing = (last.toolCalls ?? []).find((t) => t.id === tool.id);
         if (existing) return { messages: msgs };
         const tools = [...(last.toolCalls ?? []), tool];
-        msgs[msgs.length - 1] = { ...last, toolCalls: tools };
+        // If we already had thinking, the next reasoning phase is a new block.
+        const hadThinking = Boolean(last.thinking?.trim()) || Boolean(last.thinkingParts?.length);
+        msgs[msgs.length - 1] = {
+          ...last,
+          toolCalls: tools,
+          ...(hadThinking ? { thinkingNeedsNewPart: true } : {}),
+        };
       }
       const next = { messages: msgs };
       persistActiveSession({ ...state, ...next });
@@ -1559,15 +1782,40 @@ export const useChatStore = create<ChatStore>((set, get) => ({
     if (!text) return;
     set((state) => {
       const msgs = [...state.messages];
-      const last = msgs[msgs.length - 1];
+      const last = msgs[msgs.length - 1] as InternalMessage | undefined;
       if (!last || last.role !== 'assistant') return { messages: msgs };
-      const nextThinking = replace ? text : (last.thinking ?? '') + text;
-      if (isDuplicateReasoning(nextThinking, last.text)) {
-        const nextLast = { ...last };
+
+      let parts = last.thinkingParts
+        ? [...last.thinkingParts]
+        : last.thinking
+          ? [last.thinking]
+          : [];
+
+      if (replace) {
+        parts = [text];
+      } else if (parts.length === 0 || last.thinkingNeedsNewPart) {
+        parts = [...parts, text];
+      } else {
+        const tail = parts[parts.length - 1] ?? '';
+        parts = [...parts.slice(0, -1), tail + text];
+      }
+
+      // Keep all parts; only strip pure exact echo of the current answer text.
+      const nextThinking = parts.join('\n\n');
+      if (isExactDuplicateReasoning(nextThinking, last.text) && parts.length <= 1) {
+        const nextLast: InternalMessage = { ...last };
         delete nextLast.thinking;
+        delete nextLast.thinkingParts;
+        delete nextLast.thinkingNeedsNewPart;
         msgs[msgs.length - 1] = nextLast;
       } else {
-        msgs[msgs.length - 1] = { ...last, thinking: nextThinking };
+        const nextLast: InternalMessage = {
+          ...last,
+          thinking: nextThinking,
+          thinkingParts: parts,
+        };
+        delete nextLast.thinkingNeedsNewPart;
+        msgs[msgs.length - 1] = nextLast;
       }
       const next = { messages: msgs };
       persistActiveSessionThrottled({ ...state, ...next });
@@ -1604,6 +1852,7 @@ export const useChatStore = create<ChatStore>((set, get) => ({
       messages: [] as Message[],
       streaming: false,
       error: undefined,
+      chatTitle: undefined,
       cacheProfile,
     };
     set(next);

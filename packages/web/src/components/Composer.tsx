@@ -547,7 +547,7 @@ export function Composer({
             onClick={onStop}
             aria-label="Stop generating"
           >
-            <Icon name="close" size={16} />
+            <span className="hm-composer__stop-square" aria-hidden="true" />
           </button>
         ) : (
           <button

@@ -32,14 +32,34 @@ export function App() {
     connection.bindTransport(rest, ws, rpc);
     void connection.init();
 
+    let wakeTimer: ReturnType<typeof setTimeout> | null = null;
+    const scheduleWake = () => {
+      // focus + visibilitychange + pageshow often fire together on iOS resume.
+      if (wakeTimer) clearTimeout(wakeTimer);
+      wakeTimer = setTimeout(() => {
+        wakeTimer = null;
+        connection.wakeFromBackground();
+      }, 350);
+    };
+    const onVisibilityChange = () => {
+      if (document.visibilityState === 'visible') scheduleWake();
+    };
     const onOnline = () => connection.setOnline();
     const onOffline = () => connection.setOffline();
+
     window.addEventListener('online', onOnline);
     window.addEventListener('offline', onOffline);
+    window.addEventListener('pageshow', scheduleWake);
+    window.addEventListener('focus', scheduleWake);
+    document.addEventListener('visibilitychange', onVisibilityChange);
 
     return () => {
+      if (wakeTimer) clearTimeout(wakeTimer);
       window.removeEventListener('online', onOnline);
       window.removeEventListener('offline', onOffline);
+      window.removeEventListener('pageshow', scheduleWake);
+      window.removeEventListener('focus', scheduleWake);
+      document.removeEventListener('visibilitychange', onVisibilityChange);
     };
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);

@@ -1,5 +1,5 @@
 import type { Http } from './http';
-import { PWA_NON_LOCAL_SESSION_SOURCES, mergeSessionsByLineage, sessionsFromResult, type Session } from '../domain/session';
+import { PWA_EXCLUDED_SESSION_SOURCES, mergeSessionsByLineage, sessionsFromResult, type Session } from '../domain/session';
 import type { GatewayStatus } from '../domain/status';
 import type { AuthProvider, HermesUser, LoginBody, LoginResult, WsTicket } from '../domain/auth';
 import type { Artifact } from '../domain/artifact';
@@ -78,7 +78,9 @@ function asArray<T>(value: unknown): T[] {
 
 function profileSessionsPath(profile: string, excludeSources: readonly string[]): string {
   const params = new URLSearchParams({
-    limit: '100',
+    // Backend clamps per-profile window to 500; pull the full slice so
+    // Telegram/Discord/TUI history is not truncated at the old 100 cap.
+    limit: '500',
     offset: '0',
     min_messages: '1',
     archived: 'exclude',
@@ -533,10 +535,41 @@ export function makeRestClient(http: Http): RestClient {
     },
 
     async cronJobs(profile = 'all'): Promise<CronJob[]> {
-      const raw = await http<Record<string, unknown>[]>(
-        `/api/cron/jobs?profile=${encodeURIComponent(profile)}`,
-      );
-      return asArray<Record<string, unknown>>(raw).map(toCronJob);
+      const parseJobs = (raw: unknown): CronJob[] => {
+        if (Array.isArray(raw)) {
+          return asArray<Record<string, unknown>>(raw).map(toCronJob);
+        }
+        if (raw && typeof raw === 'object') {
+          const jobs = (raw as Record<string, unknown>).jobs;
+          if (Array.isArray(jobs)) {
+            return asArray<Record<string, unknown>>(jobs).map(toCronJob);
+          }
+        }
+        return [];
+      };
+
+      if (profile !== 'all') {
+        const raw = await http<unknown>(`/api/cron/jobs?profile=${encodeURIComponent(profile)}`);
+        return parseJobs(raw);
+      }
+
+      // profile=all only walks named profiles under ~/.hermes/profiles/.
+      // Primary-home jobs live in ~/.hermes/cron (profile "default") and are
+      // often missing from that list — fetch default explicitly and merge.
+      const [allRaw, defaultRaw] = await Promise.all([
+        http<unknown>('/api/cron/jobs?profile=all').catch(() => []),
+        http<unknown>('/api/cron/jobs?profile=default').catch(() => []),
+      ]);
+      const merged = new Map<string, CronJob>();
+      for (const job of [...parseJobs(allRaw), ...parseJobs(defaultRaw)]) {
+        if (!job.id) continue;
+        merged.set(`${job.profile || 'default'}:${job.id}`, job);
+      }
+      return Array.from(merged.values()).sort((a, b) => {
+        const an = (a.name || a.id).toLowerCase();
+        const bn = (b.name || b.id).toLowerCase();
+        return an.localeCompare(bn);
+      });
     },
 
     async cronJobDetail(jobId: string, profile?: string): Promise<CronJob> {
@@ -632,11 +665,11 @@ export function makeRestClient(http: Http): RestClient {
     },
 
     async profileSessions(): Promise<Session[]> {
-      // Current release-scope PWA shows local TUI/CLI/Desktop-style sessions only.
-      // Messaging sources stay out of ordinary PWA session UX until a later product decision.
+      // Local + messaging + cron-run sessions. Source chips (Telegram/Discord/Cron/…)
+      // are built from whatever the API returns. Only curator noise stays out.
       const profile = activeProfile || 'default';
-      const localRaw = await http<Record<string, unknown>>(profileSessionsPath(profile, PWA_NON_LOCAL_SESSION_SOURCES));
-      return mergeSessionsByLineage([], sessionsFromResult(localRaw));
+      const raw = await http<Record<string, unknown>>(profileSessionsPath(profile, PWA_EXCLUDED_SESSION_SOURCES));
+      return mergeSessionsByLineage([], sessionsFromResult(raw));
     },
 
     async sessionMessages(sessionId, profile): Promise<unknown> {

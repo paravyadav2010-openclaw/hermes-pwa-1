@@ -1,10 +1,14 @@
 import ReactMarkdown from 'react-markdown';
-import { memo } from 'react';
+import remarkGfm from 'remark-gfm';
+import { memo, useCallback, useEffect, useState } from 'react';
 import type { Approval, Message, ToolCall } from '@hermes-pwa/core';
 import { ToolGroup } from './ToolGroup';
 import { TodoPanel } from './TodoPanel';
 import { ThinkingDisclosure } from './ThinkingDisclosure';
+import { Icon } from './Icon';
 import { MARKDOWN_COMPONENTS, areMessageBubblePropsEqual, type MessageBubbleProps } from './MessageBubble.helpers';
+
+const MARKDOWN_REMARK_PLUGINS = [remarkGfm];
 
 const APPROVAL_TOOL_NAMES = new Set(['terminal', 'execute_code']);
 const APPROVAL_INLINE_TIME_WINDOW_MS = 5 * 60_000;
@@ -12,6 +16,83 @@ const APPROVAL_INLINE_TIME_WINDOW_MS = 5 * 60_000;
 function toMillis(value: number | undefined): number | undefined {
   if (typeof value !== 'number' || !Number.isFinite(value)) return undefined;
   return value > 1_000_000_000_000 ? value : value > 1_000_000_000 ? value * 1000 : value;
+}
+
+function formatMessageTime(value: number | undefined): string {
+  const ms = toMillis(value) ?? Date.now();
+  try {
+    return new Intl.DateTimeFormat(undefined, {
+      hour: 'numeric',
+      minute: '2-digit',
+      hour12: true,
+    }).format(new Date(ms));
+  } catch {
+    const d = new Date(ms);
+    return d.toLocaleTimeString(undefined, { hour: 'numeric', minute: '2-digit' });
+  }
+}
+
+async function copyText(text: string): Promise<boolean> {
+  const value = text.trim();
+  if (!value) return false;
+  try {
+    if (navigator.clipboard?.writeText) {
+      await navigator.clipboard.writeText(value);
+      return true;
+    }
+  } catch {
+    // fall through
+  }
+  try {
+    const ta = document.createElement('textarea');
+    ta.value = value;
+    ta.setAttribute('readonly', '');
+    ta.style.position = 'fixed';
+    ta.style.left = '-9999px';
+    document.body.appendChild(ta);
+    ta.select();
+    const ok = document.execCommand('copy');
+    document.body.removeChild(ta);
+    return ok;
+  } catch {
+    return false;
+  }
+}
+
+function MessageMetaBar({ text, createdAt, show }: { text: string; createdAt: number | undefined; show: boolean }) {
+  const [copied, setCopied] = useState(false);
+
+  useEffect(() => {
+    if (!copied) return undefined;
+    const t = window.setTimeout(() => setCopied(false), 1600);
+    return () => window.clearTimeout(t);
+  }, [copied]);
+
+  const onCopy = useCallback(() => {
+    void copyText(text).then((ok) => {
+      if (ok) setCopied(true);
+    });
+  }, [text]);
+
+  if (!show) return null;
+
+  return (
+    <div className="hm-message__meta">
+      <time className="hm-message__time" dateTime={createdAt ? new Date(toMillis(createdAt) ?? createdAt).toISOString() : undefined}>
+        {formatMessageTime(createdAt)}
+      </time>
+      <button
+        type="button"
+        className={`hm-message__copy${copied ? ' hm-message__copy--done' : ''}`}
+        onClick={onCopy}
+        disabled={!text.trim()}
+        aria-label={copied ? 'Copied' : 'Copy response'}
+        title={copied ? 'Copied' : 'Copy'}
+      >
+        <Icon name={copied ? 'check' : 'copy'} size={14} />
+      </button>
+    </div>
+  );
 }
 
 function firstApprovalLine(summary: string | undefined): string {
@@ -74,7 +155,8 @@ function MessageBubbleView({ message, rpc, isLast, streaming, liveStatus, liveFa
   if (isUser) {
     return (
       <div className="hm-message hm-message--user">
-        <ReactMarkdown components={MARKDOWN_COMPONENTS}>{message.text}</ReactMarkdown>
+        <ReactMarkdown remarkPlugins={MARKDOWN_REMARK_PLUGINS} components={MARKDOWN_COMPONENTS}>{message.text}</ReactMarkdown>
+        <MessageMetaBar text={message.text} createdAt={message.createdAt} show={Boolean(message.text.trim())} />
       </div>
     );
   }
@@ -124,9 +206,19 @@ function MessageBubbleView({ message, rpc, isLast, streaming, liveStatus, liveFa
 
       {hasActions && (
         <div className="hm-message__actions">
-          {message.thinking && message.thinking.trim().length > 0 && (
-            <ThinkingDisclosure text={message.thinking} streaming={active} />
-          )}
+          {(message.thinkingParts && message.thinkingParts.length > 0
+            ? message.thinkingParts
+            : message.thinking?.trim()
+              ? [message.thinking]
+              : []
+          ).map((part, idx, arr) => (
+            <ThinkingDisclosure
+              key={`think-${message.id}-${idx}`}
+              text={part}
+              streaming={active && idx === arr.length - 1}
+              label={arr.length > 1 ? `Thinking ${idx + 1}` : 'Thinking'}
+            />
+          ))}
 
           {completedTodoTool && (
             <div className="hm-message__todos">
@@ -140,10 +232,16 @@ function MessageBubbleView({ message, rpc, isLast, streaming, liveStatus, liveFa
 
       {message.text ? (
         <div className="hm-message__text">
-          <ReactMarkdown components={MARKDOWN_COMPONENTS}>{message.text}</ReactMarkdown>
+          <ReactMarkdown remarkPlugins={MARKDOWN_REMARK_PLUGINS} components={MARKDOWN_COMPONENTS}>{message.text}</ReactMarkdown>
           {showCaret && <span className="hm-message__caret" />}
         </div>
       ) : null}
+
+      <MessageMetaBar
+        text={message.text}
+        createdAt={message.createdAt}
+        show={!active && Boolean(message.text.trim())}
+      />
     </div>
   );
 }

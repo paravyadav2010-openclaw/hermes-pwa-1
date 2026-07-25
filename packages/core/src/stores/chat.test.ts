@@ -11,7 +11,15 @@ describe('useChatStore', () => {
 
   beforeEach(() => {
     window.localStorage.clear();
-    useChatStore.setState({ sessionId: undefined, storedSessionId: undefined, messages: [], streaming: false, error: undefined });
+    useChatStore.setState({
+      sessionId: undefined,
+      storedSessionId: undefined,
+      messages: [],
+      streaming: false,
+      error: undefined,
+      cacheProfile: undefined,
+      chatTitle: undefined,
+    });
     useSessionsStore.setState({ sessions: [], loading: false, error: undefined, pinnedIds: [] });
 
     rpcMock = {
@@ -189,10 +197,13 @@ describe('useChatStore', () => {
 
   it('routes slash commands through slash.exec instead of prompt.submit', async () => {
     useChatStore.setState({ sessionId: 's-2', messages: [] });
-    vi.mocked(rpcMock.request).mockResolvedValueOnce({ output: 'Profile: default' });
+    vi.mocked(rpcMock.request)
+      .mockResolvedValueOnce({}) // session.usage probe from ensureLiveSession
+      .mockResolvedValueOnce({ output: 'Profile: default' });
 
     await useChatStore.getState().submit(rpcMock, '/profile');
 
+    expect(rpcMock.request).toHaveBeenCalledWith('session.usage', { session_id: 's-2' });
     expect(rpcMock.request).toHaveBeenCalledWith('slash.exec', { session_id: 's-2', command: 'profile' }, { timeoutMs: 300_000 });
     expect(rpcMock.request).not.toHaveBeenCalledWith('prompt.submit', expect.anything());
     expect(useChatStore.getState().streaming).toBe(false);
@@ -202,16 +213,100 @@ describe('useChatStore', () => {
     });
   });
 
+  it('rebinds a dead live session before slash.exec (/compress stale id)', async () => {
+    useChatStore.setState({
+      sessionId: 'dead-live',
+      storedSessionId: 'stored-1',
+      messages: [{ id: 'm1', role: 'user', text: 'hi', createdAt: 1 }],
+    });
+    vi.mocked(rpcMock.request)
+      .mockRejectedValueOnce(new Error('4001 session not found')) // session.usage
+      .mockResolvedValueOnce({ session_id: 'live-2', session_key: 'stored-1', messages: [] }) // resume
+      .mockResolvedValueOnce({
+        status: 'compressed',
+        before_messages: 12,
+        after_messages: 3,
+        before_tokens: 100_000,
+        after_tokens: 20_000,
+        summary: {
+          headline: 'Compressed: 12 → 3 messages',
+          token_line: 'Approx request size: ~100,000 → ~20,000 tokens',
+        },
+      }); // session.compress
+
+    const result = await useChatStore.getState().submit(rpcMock, '/compress');
+
+    expect(result).toBe('submitted');
+    expect(rpcMock.request).toHaveBeenNthCalledWith(1, 'session.usage', { session_id: 'dead-live' });
+    expect(rpcMock.request).toHaveBeenNthCalledWith(2, 'session.resume', {
+      session_id: 'stored-1',
+    }, { timeoutMs: 300_000 });
+    expect(rpcMock.request).toHaveBeenNthCalledWith(3, 'session.compress', {
+      session_id: 'live-2',
+    }, { timeoutMs: 300_000 });
+    expect(useChatStore.getState().sessionId).toBe('live-2');
+    expect(useChatStore.getState().error).toBeUndefined();
+    expect(useChatStore.getState().messages.at(-1)?.text).toMatch(/Compressed: 12 → 3 messages/i);
+    expect(useChatStore.getState().messages.at(-1)?.text).toMatch(/100,000/);
+  });
+
+  it('retries slash.exec once when live session dies between probe and exec', async () => {
+    useChatStore.setState({
+      sessionId: 'live-ok',
+      storedSessionId: 'stored-1',
+      messages: [],
+    });
+    vi.mocked(rpcMock.request)
+      .mockResolvedValueOnce({}) // session.usage ok
+      .mockRejectedValueOnce(new Error('4001 session not found')) // slash.exec
+      .mockResolvedValueOnce({ session_id: 'live-3', session_key: 'stored-1', messages: [] }) // resume
+      .mockResolvedValueOnce({ output: 'ok after rebind' }); // slash.exec retry
+
+    await useChatStore.getState().submit(rpcMock, '/status');
+
+    expect(rpcMock.request).toHaveBeenCalledWith('slash.exec', {
+      session_id: 'live-3',
+      command: 'status',
+    }, { timeoutMs: 300_000 });
+    expect(useChatStore.getState().sessionId).toBe('live-3');
+    expect(useChatStore.getState().messages.at(-1)?.text).toMatch(/ok after rebind/);
+  });
+
+  it('formats session.compress structured summary for /compress', async () => {
+    useChatStore.setState({ sessionId: 'live-1', storedSessionId: 'stored-1', messages: [] });
+    vi.mocked(rpcMock.request)
+      .mockResolvedValueOnce({}) // usage
+      .mockResolvedValueOnce({
+        status: 'compressed',
+        summary: {
+          headline: 'No changes from compression: 4 messages',
+          token_line: 'Approx request size: ~1,200 tokens (unchanged)',
+        },
+      });
+
+    await useChatStore.getState().submit(rpcMock, '/compress');
+
+    expect(rpcMock.request).toHaveBeenCalledWith('session.compress', {
+      session_id: 'live-1',
+    }, { timeoutMs: 300_000 });
+    expect(rpcMock.request).not.toHaveBeenCalledWith('slash.exec', expect.anything());
+    const text = useChatStore.getState().messages.at(-1)?.text ?? '';
+    expect(text).toContain('No changes from compression');
+    expect(text).not.toContain('(no output)');
+  });
+
   it('falls back to command.dispatch for structured slash commands', async () => {
     useChatStore.setState({ sessionId: 's-2', messages: [] });
     vi.mocked(rpcMock.request)
+      .mockResolvedValueOnce({}) // session.usage
       .mockRejectedValueOnce(new Error('4018 use command.dispatch'))
       .mockResolvedValueOnce({ type: 'exec', output: 'queued' });
 
     await useChatStore.getState().submit(rpcMock, '/queue hello');
 
-    expect(rpcMock.request).toHaveBeenNthCalledWith(1, 'slash.exec', { session_id: 's-2', command: 'queue hello' }, { timeoutMs: 300_000 });
-    expect(rpcMock.request).toHaveBeenNthCalledWith(2, 'command.dispatch', {
+    expect(rpcMock.request).toHaveBeenNthCalledWith(1, 'session.usage', { session_id: 's-2' });
+    expect(rpcMock.request).toHaveBeenNthCalledWith(2, 'slash.exec', { session_id: 's-2', command: 'queue hello' }, { timeoutMs: 300_000 });
+    expect(rpcMock.request).toHaveBeenNthCalledWith(3, 'command.dispatch', {
       session_id: 's-2',
       name: 'queue',
       arg: 'hello',
@@ -223,13 +318,14 @@ describe('useChatStore', () => {
   it('stops alias-dispatch cycles instead of recursing indefinitely', async () => {
     useChatStore.setState({ sessionId: 's-2', messages: [] });
     vi.mocked(rpcMock.request)
+      .mockResolvedValueOnce({}) // session.usage
       .mockRejectedValueOnce(new Error('4018 use command.dispatch'))
       .mockResolvedValueOnce({ type: 'alias', target: '/loop' });
 
     const result = await useChatStore.getState().submit(rpcMock, '/loop');
 
     expect(result).toBe('failed');
-    expect(rpcMock.request).toHaveBeenCalledTimes(2);
+    expect(rpcMock.request).toHaveBeenCalledTimes(3);
     expect(useChatStore.getState().messages.at(-1)?.text).toContain('alias dispatch cycle detected');
   });
 
@@ -278,7 +374,9 @@ describe('useChatStore', () => {
 
   it('strips ANSI escapes from slash output before rendering', async () => {
     useChatStore.setState({ sessionId: 's-2', messages: [] });
-    vi.mocked(rpcMock.request).mockResolvedValueOnce({ output: '\u001b[1;31mUnknown command\u001b[0m' });
+    vi.mocked(rpcMock.request)
+      .mockResolvedValueOnce({}) // session.usage
+      .mockResolvedValueOnce({ output: '\u001b[1;31mUnknown command\u001b[0m' });
 
     await useChatStore.getState().submit(rpcMock, '/profile');
 
@@ -290,19 +388,21 @@ describe('useChatStore', () => {
   it('command.dispatch send payload is submitted as a prompt', async () => {
     useChatStore.setState({ sessionId: 's-2', messages: [] });
     vi.mocked(rpcMock.request)
+      .mockResolvedValueOnce({}) // session.usage
       .mockRejectedValueOnce(new Error('4018 use command.dispatch'))
       .mockResolvedValueOnce({ type: 'send', message: 'resolved prompt' })
       .mockResolvedValueOnce({ status: 'streaming' });
 
     await useChatStore.getState().submit(rpcMock, '/queue resolved prompt');
 
-    expect(rpcMock.request).toHaveBeenNthCalledWith(1, 'slash.exec', { session_id: 's-2', command: 'queue resolved prompt' }, { timeoutMs: 300_000 });
-    expect(rpcMock.request).toHaveBeenNthCalledWith(2, 'command.dispatch', {
+    expect(rpcMock.request).toHaveBeenNthCalledWith(1, 'session.usage', { session_id: 's-2' });
+    expect(rpcMock.request).toHaveBeenNthCalledWith(2, 'slash.exec', { session_id: 's-2', command: 'queue resolved prompt' }, { timeoutMs: 300_000 });
+    expect(rpcMock.request).toHaveBeenNthCalledWith(3, 'command.dispatch', {
       session_id: 's-2',
       name: 'queue',
       arg: 'resolved prompt',
     }, { timeoutMs: 300_000 });
-    expect(rpcMock.request).toHaveBeenNthCalledWith(3, 'prompt.submit', { session_id: 's-2', text: 'resolved prompt' }, { timeoutMs: 90_000 });
+    expect(rpcMock.request).toHaveBeenNthCalledWith(4, 'prompt.submit', { session_id: 's-2', text: 'resolved prompt' }, { timeoutMs: 90_000 });
   });
 
   it('submit resumes durable session and retries when cached live session is gone', async () => {
@@ -571,7 +671,7 @@ describe('useChatStore', () => {
     expect(useChatStore.getState().messages[0]?.text).toBe(duplicate);
   });
 
-  it('finishAssistant clears reasoning that contains the final answer with a preamble', () => {
+  it('finishAssistant keeps real reasoning that contains the final answer with a preamble', () => {
     const answer = 'The actual cause is not bubble rendering but a stalled backend compression before the reply.';
     const reasoning = `I checked the logs and compared event flow.\n\nFinal answer:\n${answer}`;
     useChatStore.setState({
@@ -581,7 +681,8 @@ describe('useChatStore', () => {
 
     useChatStore.getState().finishAssistant(answer);
 
-    expect(useChatStore.getState().messages[0]?.thinking).toBeUndefined();
+    // Keep thinking visible (collapsed chip) after the turn — only pure echoes are stripped.
+    expect(useChatStore.getState().messages[0]?.thinking).toBe(reasoning);
     expect(useChatStore.getState().messages[0]?.text).toBe(answer);
   });
 
@@ -939,7 +1040,8 @@ describe('useChatStore', () => {
     expect(restMock.sessionMessages).toHaveBeenCalledWith('stored-ok', 'default');
     expect(rpcMock.request).not.toHaveBeenCalled();
     expect(useChatStore.getState().sessionId).toBe('live-ok');
-    expect(useChatStore.getState().messages.map((m) => m.text)).toEqual(['cached', 'latest local text']);
+    // refreshHistory only reconciles durable id — local transcript stays source of truth.
+    expect(useChatStore.getState().messages.map((m) => m.text)).toEqual(['cached']);
   });
 
   it('refreshHistory preserves a local pending tool row when REST has the same assistant message without tool calls', async () => {
@@ -978,7 +1080,7 @@ describe('useChatStore', () => {
     expect(useChatStore.getState().streaming).toBe(false);
   });
 
-  it('refreshHistory drops a stale local tool-only assistant once REST has the completed answer', async () => {
+  it('refreshHistory skips while streaming so local tool rows are not wiped mid-turn', async () => {
     useSessionsStore.setState({
       sessions: [{ id: 'stored-selfdiag', title: 'Self diagnostic', updatedAt: 2, messageCount: 2, profile: 'default' }],
       loading: false,
@@ -1012,11 +1114,9 @@ describe('useChatStore', () => {
 
     await useChatStore.getState().refreshHistory(restMock, 'default');
 
-    expect(useChatStore.getState().messages.map((m) => `${m.role}:${m.text}`)).toEqual([
-      'user:PWA session check',
-      'assistant:Self-check complete. All good.',
-    ]);
-    expect(useChatStore.getState().streaming).toBe(false);
+    expect(restMock.sessionMessages).not.toHaveBeenCalled();
+    expect(useChatStore.getState().streaming).toBe(true);
+    expect(useChatStore.getState().messages.map((m) => m.id)).toEqual(['u-local', 'a-local-tool-only']);
   });
 
   it('restore does not open most recent durable session when no active cache exists', async () => {

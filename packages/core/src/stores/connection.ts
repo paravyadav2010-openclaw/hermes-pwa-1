@@ -30,6 +30,8 @@ export interface ConnectionStore {
   logout(): Promise<void>;
   disconnect(): void;
   setOnline(): void;
+  /** Resume after iOS/PWA background freeze — reset reconnect budget + health-check/reconnect. */
+  wakeFromBackground(): void;
   setOffline(): void;
 }
 
@@ -421,18 +423,40 @@ export const useConnectionStore = create<ConnectionStore>((set, get) => {
     },
 
     setOnline() {
+      get().wakeFromBackground();
+    },
+
+    wakeFromBackground() {
       const current = get().state;
-      if (current === 'offline' || current === 'reconnecting') {
+      if (
+        current === 'login' ||
+        current === 'unsupported' ||
+        current === 'incompatible-transport' ||
+        current === 'init'
+      ) {
+        return;
+      }
+
+      // Background freezes burn reconnect timers; always give a fresh budget on wake.
+      wsAttempt = 0;
+      clearReconnect();
+
+      if (current === 'offline' || current === 'reconnecting' || current === 'ticketing') {
         resetConnectionState();
         void get().init();
         return;
       }
+
       if (current === 'connected') {
         void checkConnectedRpcHealth();
       }
     },
 
     setOffline() {
+      // iOS often fires spurious offline while backgrounding; ignore if the OS still says online.
+      if (typeof navigator !== 'undefined' && navigator.onLine === true && get().state === 'connected') {
+        return;
+      }
       clearReconnect();
       set({
         state: 'offline',

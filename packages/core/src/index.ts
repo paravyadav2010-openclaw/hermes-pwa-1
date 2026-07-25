@@ -28,13 +28,14 @@ export type { GatewayStatus } from './domain/status';
 export type { AuthProvider, LoginBody, LoginResult, WsTicket } from './domain/auth';
 export type { Session, Message, MessageRole, ToolCall } from './domain/session';
 export {
-  normalizeSessionSource,
   sessionPinId,
   sessionCurrentSourceId,
   sessionHasDifferentCurrentSource,
   sessionSourceId,
   sessionSourceLabel,
   sessionSourceSearchTerms,
+  isPlaceholderSessionTitle,
+  preferSessionTitle,
 } from './domain/session';
 export type { ActionItem, ActionKind, ActionStatus, Approval, Clarify } from './domain/activity';
 export type { Board, BoardDetail, Column, Task, TaskStatus, Worker } from './domain/project';

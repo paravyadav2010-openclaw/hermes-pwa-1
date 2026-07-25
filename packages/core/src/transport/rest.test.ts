@@ -113,7 +113,7 @@ describe('makeRestClient', () => {
     expect(ticket.ttlSeconds).toBe(30);
   });
 
-  it('profileSessions fetches only the release-scope local session slice', async () => {
+  it('profileSessions includes messaging sources and raises the list cap', async () => {
     httpMock.mockResolvedValueOnce({
       sessions: [
         {
@@ -123,6 +123,13 @@ describe('makeRestClient', () => {
           last_active: 200,
           message_count: 12,
         },
+        {
+          id: 'tg-chat',
+          title: 'Telegram work',
+          source: 'telegram',
+          last_active: 190,
+          message_count: 4,
+        },
       ],
     });
 
@@ -130,11 +137,12 @@ describe('makeRestClient', () => {
 
     expect(httpMock).toHaveBeenCalledTimes(1);
     expect(queryForCall(0).get('profile')).toBe('default');
-    expect(queryForCall(0).get('exclude_sources')).toContain('telegram');
-    expect(queryForCall(0).get('exclude_sources')).toContain('discord');
-    expect(queryForCall(0).get('exclude_sources')).toContain('cron');
+    expect(queryForCall(0).get('limit')).toBe('500');
     expect(queryForCall(0).get('exclude_sources')).toContain('curator');
-    expect(sessions.map((s) => s.id)).toEqual(['local-chat']);
+    expect(queryForCall(0).get('exclude_sources') ?? '').not.toContain('cron');
+    expect(queryForCall(0).get('exclude_sources') ?? '').not.toContain('telegram');
+    expect(queryForCall(0).get('exclude_sources') ?? '').not.toContain('discord');
+    expect(sessions.map((s) => s.id)).toEqual(['local-chat', 'tg-chat']);
   });
 
   it('profileSessions scopes the local slice to the active profile', async () => {
@@ -158,6 +166,18 @@ describe('makeRestClient', () => {
     expect(httpMock.mock.calls.map(([path]) => String(path))).not.toContain(
       '/api/plugins/hermes-pwa/sessions/messaging-bindings?profile=default',
     );
+  });
+
+  it('cronJobs merges default-home jobs when listing all profiles', async () => {
+    httpMock
+      .mockResolvedValueOnce([{ id: 'named-1', name: 'Named', profile: 'tem-podcast', schedule: '0 9 * * *' }])
+      .mockResolvedValueOnce([{ id: 'def-1', name: 'Default job', profile: 'default', schedule: '0 8 * * *' }]);
+
+    const jobs = await client.cronJobs('all');
+
+    expect(httpMock).toHaveBeenCalledWith('/api/cron/jobs?profile=all');
+    expect(httpMock).toHaveBeenCalledWith('/api/cron/jobs?profile=default');
+    expect(jobs.map((j) => j.id).sort()).toEqual(['def-1', 'named-1']);
   });
 
   it('archives sessions through the backend patch endpoint with target profile', async () => {

@@ -1,5 +1,5 @@
 const CACHE_PREFIX = 'hermes-mobile-';
-const CACHE_VERSION = 'hermes-mobile-v62';
+const CACHE_VERSION = 'hermes-mobile-v79';
 const SHELL_CACHE = `${CACHE_VERSION}:shell`;
 const RUNTIME_ASSET_CACHE = 'hermes-mobile-runtime-assets';
 const RUNTIME_ASSET_CACHE_MAX_ENTRIES = 60;
@@ -148,21 +148,23 @@ self.addEventListener('fetch', (event) => {
   }
 
   if (isStaticShellAsset(url)) {
+    // Network-first for hashed assets so deploys aren't stuck on stale SW cache.
     event.respondWith(
-      caches.match(request).then((cached) => {
-        if (cached) return cached;
-        return fetch(request).then((response) => {
-          const copy = response.clone();
-          const cacheName = staticAssetCacheName(url);
-          caches.open(cacheName).then((cache) => cache
-            .put(request, copy)
-            .then(() => {
-              if (cacheName === RUNTIME_ASSET_CACHE) return trimRuntimeAssetCache(cache);
-              return undefined;
-            }));
+      fetch(request)
+        .then((response) => {
+          if (response && response.ok) {
+            const copy = response.clone();
+            const cacheName = staticAssetCacheName(url);
+            caches.open(cacheName).then((cache) => cache
+              .put(request, copy)
+              .then(() => {
+                if (cacheName === RUNTIME_ASSET_CACHE) return trimRuntimeAssetCache(cache);
+                return undefined;
+              }));
+          }
           return response;
-        });
-      }),
+        })
+        .catch(() => caches.match(request).then((cached) => cached || Response.error())),
     );
   }
 });

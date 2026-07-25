@@ -1,4 +1,4 @@
-import { createElement, useState, type AnchorHTMLAttributes, type HTMLAttributes, type ReactNode } from 'react';
+import { createElement, useState, type AnchorHTMLAttributes, type HTMLAttributes, type ReactNode, type TableHTMLAttributes, type TdHTMLAttributes, type ThHTMLAttributes } from 'react';
 import type { Approval, Message, RpcClient } from '@hermes-pwa/core';
 
 export interface MessageBubbleProps {
@@ -71,4 +71,20 @@ export const MARKDOWN_COMPONENTS = {
     const code = codeEl?.props?.children ?? children;
     return createElement(CodeBlock, { language: lang }, code);
   },
+  table: ({ children, ...props }: TableHTMLAttributes<HTMLTableElement>) =>
+    createElement(
+      'div',
+      { className: 'hm-md-table-wrap' },
+      createElement('table', { ...props, className: 'hm-md-table' }, children),
+    ),
+  thead: ({ children, ...props }: HTMLAttributes<HTMLTableSectionElement>) =>
+    createElement('thead', { ...props, className: 'hm-md-table__head' }, children),
+  tbody: ({ children, ...props }: HTMLAttributes<HTMLTableSectionElement>) =>
+    createElement('tbody', { ...props, className: 'hm-md-table__body' }, children),
+  tr: ({ children, ...props }: HTMLAttributes<HTMLTableRowElement>) =>
+    createElement('tr', { ...props, className: 'hm-md-table__row' }, children),
+  th: ({ children, ...props }: ThHTMLAttributes<HTMLTableCellElement>) =>
+    createElement('th', { ...props, className: 'hm-md-table__th' }, children),
+  td: ({ children, ...props }: TdHTMLAttributes<HTMLTableCellElement>) =>
+    createElement('td', { ...props, className: 'hm-md-table__td' }, children),
 };

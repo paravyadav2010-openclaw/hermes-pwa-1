@@ -476,27 +476,69 @@ a {
   text-align: center;
 }
 
-/* ── Chat bar area (solid bg behind floating profile bar) ─── */
+/* ── Unified chat dock: composer + profile bar, zero gap ─── */
+.hm-chat-dock {
+  flex: 0 0 auto;
+  display: flex;
+  flex-direction: column;
+  gap: 0;
+  margin: 0;
+  padding: 0;
+  background: var(--hm-color-surface);
+  border-top: 1px solid var(--hm-color-border);
+  box-shadow: none;
+}
+
+.hm-chat-dock .hm-composer {
+  border-top: 0;
+  background: transparent;
+  box-shadow: none;
+  padding: 8px 10px 4px;
+  margin: 0;
+}
+
+.hm-chat-dock .hm-chat__bar-area {
+  flex: 0 0 auto;
+  background: transparent;
+  padding: 0 10px 8px;
+  margin: 0;
+  border: 0;
+}
+
+.hm-chat-dock .hm-profile-bar-wrap {
+  margin: 0;
+  padding: 0;
+}
+
+.hm-chat-dock .hm-profile-bar {
+  margin: 0;
+}
+
+/* legacy selectors kept safe when dock not present */
 .hm-chat__bar-area {
   flex: 0 0 auto;
-  background: var(--hm-color-bg);
-  padding: 0;
+  background: var(--hm-color-surface);
+  padding: 0 10px 6px;
+  margin: 0;
+  border: 0;
 }
 
 /* ── Profile/Model Bar ────────────────────────────────────── */
 .hm-profile-bar-wrap {
   position: relative;
+  margin: 0;
+  padding: 0;
 }
 
 .hm-profile-bar {
   display: flex;
   align-items: center;
-  gap: 4px;
-  margin: 2px 12px;
-  padding: 4px 8px;
-  background: var(--hm-color-surface-2);
-  border: 1px solid var(--hm-color-border);
-  border-radius: var(--hm-radius-lg, 12px);
+  gap: 6px;
+  margin: 0;
+  padding: 4px 0;
+  background: transparent;
+  border: 0;
+  border-radius: 0;
   font-size: 11px;
   min-height: 28px;
 }
@@ -505,26 +547,37 @@ a {
   display: flex;
   align-items: center;
   gap: 3px;
-  padding: 2px 4px;
-  border: 0;
-  background: transparent;
+  padding: 4px 8px;
+  border: 1px solid var(--hm-color-border);
+  background: var(--hm-color-surface-2);
   color: var(--hm-color-muted);
   font-family: inherit;
   font-size: 10px;
   cursor: pointer;
-  border-radius: 4px;
+  border-radius: 999px;
   white-space: nowrap;
-  transition: background 0.15s;
+  transition: background 0.15s, border-color 0.15s, color 0.15s;
   -webkit-tap-highlight-color: transparent;
 }
 
 .hm-profile-bar__item:hover {
   background: var(--hm-color-surface-3);
+  border-color: color-mix(in srgb, var(--hm-color-border) 70%, var(--hm-color-text-muted));
+  color: var(--hm-color-text);
+}
+
+.hm-profile-bar__item:active {
+  background: var(--hm-color-surface);
 }
 
 .hm-profile-bar__item--model {
-  max-width: 40%;
+  max-width: 38%;
   overflow: hidden;
+}
+
+.hm-profile-bar__item--effort {
+  max-width: 80px;
+  flex-shrink: 0;
 }
 
 .hm-profile-bar__label {
@@ -533,13 +586,14 @@ a {
 }
 
 .hm-profile-bar__label--trim {
-  max-width: 100px;
+  max-width: 88px;
   overflow: hidden;
   text-overflow: ellipsis;
 }
 
 .hm-profile-bar__spacer {
   flex: 1;
+  min-width: 4px;
 }
 
 /* ── Context Ring ─────────────────────────────────────────── */
@@ -550,12 +604,19 @@ a {
   justify-content: center;
   width: 34px;
   height: 34px;
-  flex-shrink: 0;
-  border: 0;
-  background: transparent;
   padding: 0;
+  border: 1px solid var(--hm-color-border);
+  border-radius: 999px;
+  background: var(--hm-color-surface-2);
   cursor: pointer;
+  flex-shrink: 0;
   -webkit-tap-highlight-color: transparent;
+  transition: background 0.15s, border-color 0.15s;
+}
+
+.hm-context-ring:hover {
+  background: var(--hm-color-surface-3);
+  border-color: color-mix(in srgb, var(--hm-color-border) 70%, var(--hm-color-text-muted));
 }
 
 .hm-context-ring__pct {
@@ -1199,9 +1260,8 @@ a {
   flex: 1 1 auto;
   overflow: hidden;
   min-height: 0;
-  background:
-    radial-gradient(circle at 20% 0%, rgba(73, 129, 255, 0.12), transparent 34%),
-    linear-gradient(180deg, var(--hm-color-bg), var(--hm-color-surface-2));
+  /* Solid bg only — no gradient bleed between composer and profile bar */
+  background: var(--hm-color-bg);
 }
 
 .hm-chat__messages {
@@ -1270,7 +1330,7 @@ a {
 .hm-message table {
   min-width: 0;
   max-width: 100%;
-  overflow-x: clip;
+  overflow-x: auto;
   overflow-y: visible;
   overflow-wrap: anywhere;
   word-break: break-word;
@@ -1278,6 +1338,62 @@ a {
 
 .hm-message pre {
   white-space: pre-wrap;
+}
+
+/* GFM markdown tables */
+.hm-md-table-wrap {
+  width: 100%;
+  max-width: 100%;
+  overflow-x: auto;
+  -webkit-overflow-scrolling: touch;
+  margin: var(--hm-space-2) 0;
+  border: 1px solid var(--hm-color-border);
+  border-radius: var(--hm-radius-md);
+  background: var(--hm-color-surface);
+}
+
+.hm-md-table {
+  width: 100%;
+  min-width: 240px;
+  border-collapse: collapse;
+  font-size: var(--hm-fs-small);
+  line-height: 1.35;
+}
+
+.hm-md-table__th,
+.hm-md-table__td {
+  padding: 8px 10px;
+  text-align: left;
+  vertical-align: top;
+  border-bottom: 1px solid var(--hm-color-border);
+  border-right: 1px solid var(--hm-color-border);
+  word-break: break-word;
+  overflow-wrap: anywhere;
+}
+
+.hm-md-table__th:last-child,
+.hm-md-table__td:last-child {
+  border-right: 0;
+}
+
+.hm-md-table__th {
+  font-weight: var(--hm-fw-semibold);
+  color: var(--hm-color-text);
+  background: var(--hm-color-surface-2);
+  white-space: nowrap;
+}
+
+.hm-md-table__td {
+  color: var(--hm-color-text);
+  background: transparent;
+}
+
+.hm-md-table__body .hm-md-table__row:last-child .hm-md-table__td {
+  border-bottom: 0;
+}
+
+.hm-md-table__body .hm-md-table__row:nth-child(even) .hm-md-table__td {
+  background: color-mix(in srgb, var(--hm-color-surface-2) 55%, transparent);
 }
 
 .hm-message__header {
@@ -1384,15 +1500,68 @@ a {
   margin-bottom: 0;
 }
 
+.hm-message__meta {
+  display: flex;
+  align-items: center;
+  justify-content: flex-end;
+  gap: 10px;
+  margin-top: 6px;
+  min-height: 22px;
+}
+
+.hm-message--user .hm-message__meta {
+  justify-content: flex-end;
+}
+
+.hm-message__time {
+  color: var(--hm-color-text-muted);
+  font-size: 11px;
+  line-height: 1;
+  font-variant-numeric: tabular-nums;
+  opacity: 0.85;
+}
+
+.hm-message__copy {
+  appearance: none;
+  border: 0;
+  background: transparent;
+  color: var(--hm-color-accent);
+  font: inherit;
+  line-height: 1;
+  padding: 4px;
+  margin: 0;
+  cursor: pointer;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  -webkit-tap-highlight-color: transparent;
+}
+
+.hm-message__copy svg {
+  flex-shrink: 0;
+}
+
+.hm-message__copy--done {
+  color: var(--hm-color-text-muted);
+}
+
+.hm-message__copy:disabled {
+  opacity: 0.4;
+  cursor: default;
+}
+
+.hm-message__copy:not(:disabled):active {
+  opacity: 0.7;
+}
+
 .hm-message__actions {
   display: flex;
   flex-direction: column;
   gap: var(--hm-space-2);
   margin-bottom: var(--hm-space-2);
-  padding: var(--hm-space-2);
-  background: var(--hm-color-surface-2);
-  border: 1px solid var(--hm-color-border);
-  border-radius: var(--hm-radius-md);
+  padding: 0;
+  background: transparent;
+  border: 0;
 }
 
 .hm-message__caret {
@@ -1418,16 +1587,31 @@ a {
 .hm-tool-group {
   display: flex;
   flex-direction: column;
-  gap: 6px;
+  gap: 0;
+  border: 1px solid var(--hm-color-border);
+  border-radius: var(--hm-radius-md);
+  background: var(--hm-color-surface-2);
+  overflow: hidden;
 }
 
 .hm-tool-group__header {
   display: flex;
   align-items: center;
   gap: 8px;
-  padding: 0 2px;
-  font-size: var(--hm-fs-small);
+  width: 100%;
+  padding: 8px 10px;
+  border: 0;
+  background: transparent;
   color: var(--hm-color-text-muted);
+  font-family: inherit;
+  font-size: var(--hm-fs-small);
+  text-align: left;
+  cursor: pointer;
+  -webkit-tap-highlight-color: transparent;
+}
+
+.hm-tool-group__header:hover {
+  background: color-mix(in srgb, var(--hm-color-surface-3) 60%, transparent);
 }
 
 .hm-tool-group__header-icon {
@@ -1438,17 +1622,25 @@ a {
   border-radius: 5px;
   background: var(--hm-color-surface);
   color: var(--hm-color-text-2);
+  flex-shrink: 0;
 }
 
 .hm-tool-group__header-title {
   font-weight: var(--hm-fw-semibold);
   color: var(--hm-color-text);
+  flex-shrink: 0;
 }
 
 .hm-tool-group__header-meta {
-  margin-left: auto;
+  margin-left: 0;
+  flex: 1;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
   font-size: 11px;
   text-transform: lowercase;
+  color: var(--hm-color-text-muted);
 }
 
 .hm-tool-group__header-running {
@@ -1457,6 +1649,31 @@ a {
   border-radius: 50%;
   background: var(--hm-color-warning);
   animation: hm-pulse 1.5s ease-in-out infinite;
+  flex-shrink: 0;
+}
+
+.hm-tool-group__chevron,
+.hm-tool-group__row-chevron {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  flex-shrink: 0;
+  color: var(--hm-color-text-muted);
+  transition: transform 0.15s ease;
+}
+
+.hm-tool-group__chevron--open,
+.hm-tool-group__row-chevron--open {
+  transform: rotate(90deg);
+}
+
+.hm-tool-group__body {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  padding: 0 8px 8px;
+  border-top: 1px solid var(--hm-color-border);
+  background: var(--hm-color-surface);
 }
 
 .hm-tool-group__row {
@@ -1641,7 +1858,7 @@ a {
 }
 
 .hm-thinking {
-  margin-bottom: var(--hm-space-2);
+  margin-bottom: 0;
   border-radius: var(--hm-radius-md);
   border: 1px solid var(--hm-color-border);
   background: var(--hm-color-surface-2);
@@ -1661,10 +1878,51 @@ a {
   font-size: var(--hm-fs-small);
   text-align: left;
   cursor: pointer;
+  -webkit-tap-highlight-color: transparent;
+}
+
+.hm-thinking__header:hover {
+  background: color-mix(in srgb, var(--hm-color-surface-3) 60%, transparent);
+}
+
+.hm-thinking__icon {
+  display: grid;
+  place-items: center;
+  width: 18px;
+  height: 18px;
+  border-radius: 5px;
+  background: var(--hm-color-surface);
+  color: var(--hm-color-text-2);
+  flex-shrink: 0;
 }
 
 .hm-thinking__title {
   font-weight: var(--hm-fw-semibold);
+  color: var(--hm-color-text);
+  flex-shrink: 0;
+}
+
+.hm-thinking__lines {
+  flex: 1;
+  min-width: 0;
+  font-size: 11px;
+  color: var(--hm-color-text-muted);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.hm-thinking__chevron {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  flex-shrink: 0;
+  color: var(--hm-color-text-muted);
+  transition: transform 0.15s ease;
+}
+
+.hm-thinking__chevron--open {
+  transform: rotate(90deg);
 }
 
 .hm-thinking__body {
@@ -1679,8 +1937,6 @@ a {
   overflow-x: hidden;
   overflow-wrap: anywhere;
   color: var(--hm-color-text-muted);
-  max-height: 200px;
-  overflow-y: auto;
 }
 
 .hm-todo-panel {
@@ -1785,7 +2041,7 @@ a {
   font-size: var(--hm-fs-mono);
 }
 
-/* Composer */
+/* Composer (standalone; dock overrides border/bg when nested) */
 .hm-composer {
   position: relative;
   flex: 0 0 auto;
@@ -1793,10 +2049,12 @@ a {
   display: flex;
   flex-direction: column;
   gap: 4px;
-  padding: 4px 10px 2px;
+  padding: 6px 10px 2px;
+  margin: 0;
   background: var(--hm-color-surface);
   border-top: 1px solid var(--hm-color-border);
-  box-shadow: 0 -10px 28px rgba(15, 23, 42, 0.06);
+  border-bottom: 0;
+  box-shadow: none;
 }
 
 .hm-attach-overlay {
@@ -2007,7 +2265,8 @@ a {
 
 .hm-composer__timer {
   position: absolute;
-  bottom: -14px;
+  top: -14px;
+  bottom: auto;
   left: 50%;
   transform: translateX(-50%);
   font-size: 10px;
@@ -2029,9 +2288,17 @@ a {
 }
 
 .hm-composer__stop {
-  background: var(--hm-color-danger-bg);
-  color: var(--hm-color-danger);
-  border-color: var(--hm-color-danger);
+  background: var(--hm-color-accent);
+  color: #fff;
+  border-color: var(--hm-color-accent);
+}
+
+.hm-composer__stop-square {
+  display: block;
+  width: 11px;
+  height: 11px;
+  border-radius: 2px;
+  background: #fff;
 }
 
 .hm-composer__voice-bar {

@@ -1,6 +1,25 @@
 import { useEffect, useMemo, useRef, useState } from 'react';
-import type { ModelOptions, RpcClient, RestClient } from '@hermes-pwa/core';
+import type { ModelOptions, ReasoningEffort, RpcClient, RestClient } from '@hermes-pwa/core';
 import { Icon } from '../components/Icon';
+
+const REASONING_EFFORTS: ReasoningEffort[] = ['none', 'minimal', 'low', 'medium', 'high', 'xhigh'];
+
+function effortShort(effort: ReasoningEffort | undefined): string {
+  switch (effort) {
+    case 'none': return 'None';
+    case 'minimal': return 'Min';
+    case 'low': return 'Low';
+    case 'medium': return 'Med';
+    case 'high': return 'High';
+    case 'xhigh': return 'XHigh';
+    default: return 'Effort';
+  }
+}
+
+function effortLabel(effort: ReasoningEffort): string {
+  if (effort === 'xhigh') return 'Extra high';
+  return effort.charAt(0).toUpperCase() + effort.slice(1);
+}
 
 function fmtTokens(n: number): string {
   if (n < 1000) return String(n);
@@ -32,7 +51,7 @@ function ContextRing({ used, limit, onClick }: { used: number; limit: number; on
   );
 }
 
-type Dropdown = 'profile' | 'model' | 'context' | null;
+type Dropdown = 'profile' | 'model' | 'effort' | 'context' | null;
 
 interface ProfileModelBarProps {
   profiles: { name: string; displayName?: string; model?: string; provider?: string }[];
@@ -42,6 +61,8 @@ interface ProfileModelBarProps {
   sessionId: string | undefined;
   rest: RestClient;
   onModelChange: (provider: string, model: string) => void;
+  onEffortChange?: (effort: ReasoningEffort) => void;
+  reasoningEffort?: ReasoningEffort;
   modelLabel: string;
   providerLabel: string;
 }
@@ -67,17 +88,25 @@ function estimateTokens(messages: { text: string; thinking?: string; toolCalls?:
 
 export function ProfileModelBar({
   profiles, activeName, messages, rpc, sessionId, rest, onModelChange,
-  modelLabel, providerLabel,
+  onEffortChange, reasoningEffort, modelLabel, providerLabel,
 }: ProfileModelBarProps) {
   const [dropdown, setDropdown] = useState<Dropdown>(null);
   const [modelOptions, setModelOptions] = useState<ModelOptions | null>(null);
   const [selectedProvider, setSelectedProvider] = useState<string | null>(null);
   const [forceTick, setForceTick] = useState(0);
+  const [localEffort, setLocalEffort] = useState<ReasoningEffort | undefined>(reasoningEffort);
   const active = profiles.find((p) => p.name === activeName);
   const profileLabel = active?.displayName ?? activeName ?? 'default';
   const summary = providerLabel ? `${providerLabel} · ${modelLabel}` : modelLabel;
   const barRef = useRef<HTMLDivElement>(null);
   const [contextLimit, setContextLimit] = useState(1_000_000);
+
+  // Keep bar label in sync when profile/prop changes; selection updates local first.
+  useEffect(() => {
+    setLocalEffort(reasoningEffort);
+  }, [reasoningEffort, activeName]);
+
+  const displayEffort = localEffort ?? reasoningEffort;
 
   // Fetch the context limit once from the current profile's model info
   useEffect(() => {
@@ -131,9 +160,10 @@ export function ProfileModelBar({
           : typeof result.usage === 'object' && result.usage
             ? (result.usage as Record<string, unknown>).total_tokens
             : undefined;
-        const ctxLimit = typeof result.context_limit === 'number' ? result.context_limit
+        const rawLimit = typeof result.context_limit === 'number' ? result.context_limit
           : typeof result.contextLimit === 'number' ? result.contextLimit
-          : contextLimit;
+          : undefined;
+        const ctxLimit = (typeof rawLimit === 'number' && rawLimit > 0) ? rawLimit : contextLimit;
         if (typeof ctxTokens === 'number' && ctxTokens >= 0) {
           setRpcContext({ used: ctxTokens, limit: ctxLimit });
         }
@@ -166,6 +196,12 @@ export function ProfileModelBar({
     setSelectedProvider(null);
   }
 
+  function handleEffortSelect(effort: ReasoningEffort) {
+    setLocalEffort(effort);
+    onEffortChange?.(effort);
+    setDropdown(null);
+  }
+
   return (
     <div className="hm-profile-bar-wrap" ref={barRef}>
       <div className="hm-profile-bar">
@@ -178,6 +214,17 @@ export function ProfileModelBar({
         <button type="button" className="hm-profile-bar__item hm-profile-bar__item--model" onClick={() => setDropdown(dropdown === 'model' ? null : 'model')}>
           <Icon name="sparkle" size={14} />
           <span className="hm-profile-bar__label hm-profile-bar__label--trim">{summary}</span>
+          <Icon name="chevD" size={10} />
+        </button>
+
+        <button
+          type="button"
+          className="hm-profile-bar__item hm-profile-bar__item--effort"
+          onClick={() => setDropdown(dropdown === 'effort' ? null : 'effort')}
+          aria-label="Reasoning effort"
+        >
+          <Icon name="bolt" size={14} />
+          <span className="hm-profile-bar__label">{effortShort(displayEffort)}</span>
           <Icon name="chevD" size={10} />
         </button>
 
@@ -236,6 +283,22 @@ export function ProfileModelBar({
         </div>
       )}
 
+      {dropdown === 'effort' && (
+        <div className="hm-profile-dropdown hm-profile-dropdown--up">
+          {REASONING_EFFORTS.map((effort) => (
+            <button
+              key={effort}
+              type="button"
+              className={`hm-profile-dropdown__item${displayEffort === effort ? ' hm-profile-dropdown__item--active' : ''}`}
+              onClick={() => handleEffortSelect(effort)}
+            >
+              <span className="hm-profile-dropdown__name">{effortLabel(effort)}</span>
+              <span className="hm-profile-dropdown__meta">{effortShort(effort)}</span>
+            </button>
+          ))}
+        </div>
+      )}
+
       {dropdown === 'context' && (
         <div className="hm-context-popover hm-profile-dropdown--up">
           <div className="hm-context-popover__row">
@@ -259,7 +322,9 @@ export function ProfileModelBar({
             <span className="hm-context-popover__label">Usage</span>
             <span className="hm-context-popover__value" style={{ color: pct >= 90 ? '#dc4b46' : pct >= 70 ? '#c2790f' : '#2540ff' }}>{pct}%</span>
           </div>
-          {!isReal && (
+          {isReal ? (
+            <div className="hm-context-popover__footnote">Live from gateway · every 2s</div>
+          ) : (
             <div className="hm-context-popover__footnote">Live: every 3s · estimated from message text</div>
           )}
         </div>

@@ -489,6 +489,32 @@ describe('useConnectionStore', () => {
     expect(useConnectionStore.getState().state).toBe('connected');
   });
 
+  it('wakeFromBackground from offline resets reconnect budget and re-inits', async () => {
+    vi.mocked(restMock.status).mockResolvedValue({ authRequired: false, authProviders: [] });
+    vi.mocked(restMock.wsTicket).mockResolvedValue({ ticket: 't-wake', ttlSeconds: 30 });
+    const store = useConnectionStore.getState();
+    store.bindTransport(restMock, wsMock, rpcMock);
+    useConnectionStore.setState({ state: 'offline', error: 'Could not reconnect after several attempts.' });
+
+    store.wakeFromBackground();
+
+    await vi.waitFor(() => expect(useConnectionStore.getState().state).toBe('ticketing'));
+    expect(restMock.status).toHaveBeenCalled();
+    expect(restMock.wsTicket).toHaveBeenCalled();
+  });
+
+  it('wakeFromBackground while connected triggers session.usage health check', async () => {
+    vi.mocked(rpcMock.request).mockResolvedValue({});
+    const store = useConnectionStore.getState();
+    store.bindTransport(restMock, wsMock, rpcMock);
+    useConnectionStore.setState({ state: 'connected', error: undefined });
+
+    store.wakeFromBackground();
+
+    await vi.waitFor(() => expect(rpcMock.request).toHaveBeenCalledWith('session.usage', {}, { timeoutMs: 5000 }));
+    expect(useConnectionStore.getState().state).toBe('connected');
+  });
+
   it('setOnline forces reconnect when a connected websocket no longer answers RPC', async () => {
     vi.useFakeTimers();
     vi.spyOn(Math, 'random').mockReturnValue(0);
@@ -507,15 +533,38 @@ describe('useConnectionStore', () => {
     expect(restMock.wsTicket).toHaveBeenCalledTimes(1);
   });
 
-  it('setOffline forces offline state', () => {
-    const store = useConnectionStore.getState();
-    store.bindTransport(restMock, wsMock, rpcMock);
-    useConnectionStore.setState({ state: 'connected' });
+  it('setOffline forces offline state when navigator reports offline', () => {
+    const onlineDesc = Object.getOwnPropertyDescriptor(navigator, 'onLine');
+    Object.defineProperty(navigator, 'onLine', { configurable: true, get: () => false });
+    try {
+      const store = useConnectionStore.getState();
+      store.bindTransport(restMock, wsMock, rpcMock);
+      useConnectionStore.setState({ state: 'connected' });
 
-    store.setOffline();
+      store.setOffline();
 
-    expect(useConnectionStore.getState().state).toBe('offline');
-    expect(useConnectionStore.getState().error).toMatch(/offline/i);
+      expect(useConnectionStore.getState().state).toBe('offline');
+      expect(useConnectionStore.getState().error).toMatch(/offline/i);
+    } finally {
+      if (onlineDesc) Object.defineProperty(navigator, 'onLine', onlineDesc);
+      else Object.defineProperty(navigator, 'onLine', { configurable: true, get: () => true });
+    }
+  });
+
+  it('setOffline ignores spurious offline while still online and connected', () => {
+    const onlineDesc = Object.getOwnPropertyDescriptor(navigator, 'onLine');
+    Object.defineProperty(navigator, 'onLine', { configurable: true, get: () => true });
+    try {
+      const store = useConnectionStore.getState();
+      store.bindTransport(restMock, wsMock, rpcMock);
+      useConnectionStore.setState({ state: 'connected', error: undefined });
+
+      store.setOffline();
+
+      expect(useConnectionStore.getState().state).toBe('connected');
+    } finally {
+      if (onlineDesc) Object.defineProperty(navigator, 'onLine', onlineDesc);
+    }
   });
 
   it('ws close handler schedules reconnect when connected', async () => {

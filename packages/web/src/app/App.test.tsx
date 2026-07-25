@@ -5,6 +5,9 @@ import { App } from './App';
 const mockInit = vi.fn();
 const mockLogin = vi.fn();
 const mockBindTransport = vi.fn();
+const mockSetOnline = vi.fn();
+const mockSetOffline = vi.fn();
+const mockWakeFromBackground = vi.fn();
 
 vi.mock('@hermes-pwa/core', async () => {
   const actual = await vi.importActual<typeof import('@hermes-pwa/core')>('@hermes-pwa/core');
@@ -16,6 +19,9 @@ vi.mock('@hermes-pwa/core', async () => {
       init: mockInit,
       login: mockLogin,
       bindTransport: mockBindTransport,
+      setOnline: mockSetOnline,
+      setOffline: mockSetOffline,
+      wakeFromBackground: mockWakeFromBackground,
     })),
   };
 });
@@ -53,6 +59,9 @@ describe('App Phase 3', () => {
       init: mockInit,
       login: mockLogin,
       bindTransport: mockBindTransport,
+      setOnline: mockSetOnline,
+      setOffline: mockSetOffline,
+      wakeFromBackground: mockWakeFromBackground,
     } as ReturnType<typeof coreModule.useConnectionStore>);
 
     render(<App />);
@@ -61,7 +70,7 @@ describe('App Phase 3', () => {
     expect(menu).toBeInTheDocument();
     fireEvent.click(menu);
     await waitFor(() =>
-      expect(screen.getByRole('button', { name: /^Chat$/i })).toBeInTheDocument(),
+      expect(screen.getAllByRole('button', { name: /^Chat$/i }).length).toBeGreaterThan(0),
     );
   });
 

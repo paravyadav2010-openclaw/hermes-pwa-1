@@ -8,6 +8,7 @@ import {
   useActivityStore,
   useConfigStore,
   sessionSourceLabel,
+  isPlaceholderSessionTitle,
   type RpcClient,
   type RestClient,
 } from '@hermes-pwa/core';
@@ -85,6 +86,13 @@ function isNonChatStatus(kind: string, payload: Record<string, unknown> | undefi
   if (NON_CHAT_STATUS_KINDS.has(kind)) return true;
   const rawText = typeof payload?.text === 'string' ? payload.text : '';
   return NON_CHAT_STATUS_TEXT.test(rawText);
+}
+
+function provisionalTitleFromText(text: string): string {
+  const cleaned = text.replace(/\s+/g, ' ').trim();
+  if (!cleaned) return '';
+  const firstLine = cleaned.split('\n')[0]?.trim() ?? cleaned;
+  return firstLine.length > 56 ? `${firstLine.slice(0, 55)}…` : firstLine;
 }
 
 export function Chat({ rpc, rest, onNavigate }: ChatProps) {
@@ -234,6 +242,27 @@ export function Chat({ rpc, rest, onNavigate }: ChatProps) {
     };
   }, [connection.state, load, rest, activeName, currentName]);
 
+  // After background wake reconnects WS, pull durable history once so mid-turn work appears.
+  const prevConnectionStateRef = useRef(connection.state);
+  useEffect(() => {
+    const prev = prevConnectionStateRef.current;
+    prevConnectionStateRef.current = connection.state;
+    if (connection.state !== 'connected') return;
+    if (prev === 'connected' || prev === 'init' || prev === 'login') return;
+    if (activeName && activeName !== currentName) return;
+    if (!initialRestoreDoneRef.current) return;
+    const { sessionId, storedSessionId, messages } = useChatStore.getState();
+    if (!sessionId && !storedSessionId && messages.length === 0) return;
+    void (async () => {
+      try {
+        await load(rest);
+        await useChatStore.getState().refreshHistory(rest, activeName);
+      } catch {
+        // Best-effort catch-up after reconnect.
+      }
+    })();
+  }, [connection.state, load, rest, activeName, currentName]);
+
   useEffect(() => {
     const refreshActiveHistory = async () => {
       await useSessionsStore.getState().load(rest);
@@ -269,6 +298,10 @@ export function Chat({ rpc, rest, onNavigate }: ChatProps) {
       useChatStore.getState().finishAssistant(finalText);
       setLiveStatus({ text: '' });
       void refreshActiveHistory();
+      // Backend auto-title is async; refresh list after a beat as a safety net.
+      window.setTimeout(() => {
+        void useSessionsStore.getState().load(rest);
+      }, 2500);
       drainQueuedPrompt();
     };
     const extractToolInput = (payload: Record<string, unknown> | undefined): Record<string, unknown> | undefined => {
@@ -394,11 +427,51 @@ export function Chat({ rpc, rest, onNavigate }: ChatProps) {
     const onSessionInfo = (e: import('@hermes-pwa/core').RpcEvent) => {
       if (!eventBelongsToActiveChat(e)) return;
       const payload = e.payload as Record<string, unknown> | undefined;
+      const title = typeof payload?.title === 'string' ? payload.title.trim() : '';
+      const durableId =
+        (typeof payload?.stored_session_id === 'string' && payload.stored_session_id) ||
+        e.sessionId ||
+        useChatStore.getState().storedSessionId ||
+        useChatStore.getState().sessionId;
+      if (title && durableId) {
+        useChatStore.getState().setChatTitle(title);
+        useSessionsStore.getState().applyTitle(durableId, title, { force: !isPlaceholderSessionTitle(title) });
+      }
       if (payload?.running === false) {
         useChatStore.getState().markIdle();
         setLiveStatus({ text: '' });
         void refreshActiveHistory();
         drainQueuedPrompt();
+      }
+    };
+
+    const onSessionTitle = (e: import('@hermes-pwa/core').RpcEvent) => {
+      // Gateway fires this after LLM auto-title completes (async).
+      const payload = e.payload as Record<string, unknown> | undefined;
+      const title = typeof payload?.title === 'string' ? payload.title.trim() : '';
+      const sid =
+        (typeof payload?.session_id === 'string' && payload.session_id) ||
+        e.sessionId ||
+        useChatStore.getState().storedSessionId ||
+        useChatStore.getState().sessionId;
+      if (!title || !sid) return;
+      // Only apply to active chat OR if the session is already in our list.
+      const active = useChatStore.getState();
+      const belongs =
+        !e.sessionId ||
+        e.sessionId === active.sessionId ||
+        e.sessionId === active.storedSessionId ||
+        sid === active.sessionId ||
+        sid === active.storedSessionId ||
+        useSessionsStore.getState().sessions.some((s) => s.id === sid || s.lineageRootId === sid);
+      if (!belongs) return;
+      useChatStore.getState().setChatTitle(title);
+      useSessionsStore.getState().applyTitle(sid, title, { force: true });
+      if (active.sessionId && active.sessionId !== sid) {
+        useSessionsStore.getState().applyTitle(active.sessionId, title, { force: true });
+      }
+      if (active.storedSessionId && active.storedSessionId !== sid) {
+        useSessionsStore.getState().applyTitle(active.storedSessionId, title, { force: true });
       }
     };
 
@@ -415,6 +488,7 @@ export function Chat({ rpc, rest, onNavigate }: ChatProps) {
     rpc.events.addEventListener('reasoning.available', onReasoningAvailable);
     rpc.events.addEventListener('error', onError);
     rpc.events.addEventListener('session.info', onSessionInfo);
+    rpc.events.addEventListener('session.title', onSessionTitle);
 
     return () => {
       rpc.events.removeEventListener('message.start', onMessageStart);
@@ -430,6 +504,7 @@ export function Chat({ rpc, rest, onNavigate }: ChatProps) {
       rpc.events.removeEventListener('reasoning.available', onReasoningAvailable);
       rpc.events.removeEventListener('error', onError);
       rpc.events.removeEventListener('session.info', onSessionInfo);
+      rpc.events.removeEventListener('session.title', onSessionTitle);
     };
   }, [rpc, rest, activeName, drainQueuedPrompt]);
 
@@ -489,6 +564,17 @@ export function Chat({ rpc, rest, onNavigate }: ChatProps) {
     if (!storedSessionId) return false;
     return s.id === storedSessionId || s.lineageRootId === storedSessionId;
   });
+
+  // Mirror session list title into live header when opening/resuming a chat.
+  useEffect(() => {
+    const title = currentSession?.title?.trim();
+    if (!title || isPlaceholderSessionTitle(title)) return;
+    const existing = useChatStore.getState().chatTitle;
+    if (!existing || isPlaceholderSessionTitle(existing)) {
+      useChatStore.getState().setChatTitle(title);
+    }
+  }, [currentSession?.id, currentSession?.title]);
+
   const branchLabel = currentSession?.source
     ? (sessionSourceLabel(currentSession.source) ?? 'branch')
     : currentSession?.cwd ?? 'branch';
@@ -530,7 +616,41 @@ export function Chat({ rpc, rest, onNavigate }: ChatProps) {
   const submitPrompt = useCallback(
     (text: string) => {
       markLocalInputShouldScroll();
+      const applyProvisionalTitle = () => {
+        const chat = useChatStore.getState();
+        const provisional = provisionalTitleFromText(text);
+        if (!provisional) return;
+        // Only auto-name when title is still a stub (or unset). Don't rename every turn.
+        const existingChatTitle = chat.chatTitle;
+        if (existingChatTitle && !isPlaceholderSessionTitle(existingChatTitle)) return;
+
+        const { sessionId: liveId, storedSessionId: durableId } = chat;
+        const id = durableId || liveId;
+        const sessions = useSessionsStore.getState().sessions;
+        const current = id
+          ? sessions.find((s) => s.id === id || s.lineageRootId === id)
+          : undefined;
+        if (current && !isPlaceholderSessionTitle(current.title) && !isPlaceholderSessionTitle(existingChatTitle)) {
+          // Session already has a real name — mirror it into header.
+          useChatStore.getState().setChatTitle(current.title);
+          return;
+        }
+
+        // Header updates immediately as you send.
+        useChatStore.getState().setChatTitle(provisional);
+        if (!id) return;
+        useSessionsStore.getState().applyTitle(id, provisional, { force: true });
+        if (durableId && liveId && durableId !== liveId) {
+          useSessionsStore.getState().applyTitle(liveId, provisional, { force: true });
+        }
+        const persistId = durableId || current?.id || id;
+        void rest.sessionUpdate(persistId, { title: provisional }).catch(() => {});
+      };
+      // Best-effort before submit (covers resumed sessions).
+      applyProvisionalTitle();
       void submit(rpc, text, profileForSubmit).then((result) => {
+        // After submit, live session id exists for brand-new chats.
+        applyProvisionalTitle();
         if (result === 'busy') {
           handleBusyInput(text);
         }
@@ -715,37 +835,53 @@ export function Chat({ rpc, rest, onNavigate }: ChatProps) {
 
         {error ? <div className="hm-warning-banner hm-warning-banner--error">{error}</div> : null}
       </div>
-      <Composer
-        onSend={handleSend}
-        slashCommandsRpc={rpc}
-        onSteer={handleBusyInput}
-        onStop={() => void interrupt(rpc)}
-        busy={streaming}
-        busySubmitLabel={busySubmitLabel}
-        placeholder={streaming ? busyPlaceholder : 'Reply or steer the agent…'}
-        messages={messages}
-        onTranscribeAudio={handleTranscribeAudio}
-        onSpeakVoiceText={speakVoiceText}
-        onStopVoiceAudio={stopVoiceAudio}
-        onPrimeVoiceAudio={primeVoiceAudio}
-        onUploadFile={handleUploadFile}
-        onLayoutChange={handleComposerLayoutChange}
-      />
+      <div className="hm-chat-dock">
+        <Composer
+          onSend={handleSend}
+          slashCommandsRpc={rpc}
+          onSteer={handleBusyInput}
+          onStop={() => void interrupt(rpc)}
+          busy={streaming}
+          busySubmitLabel={busySubmitLabel}
+          placeholder={streaming ? busyPlaceholder : 'Reply or steer the agent…'}
+          messages={messages}
+          onTranscribeAudio={handleTranscribeAudio}
+          onSpeakVoiceText={speakVoiceText}
+          onStopVoiceAudio={stopVoiceAudio}
+          onPrimeVoiceAudio={primeVoiceAudio}
+          onUploadFile={handleUploadFile}
+          onLayoutChange={handleComposerLayoutChange}
+        />
+        <div className="hm-chat__bar-area">
+          <ProfileModelBar
+            profiles={profiles}
+            activeName={activeName}
+            messages={messages}
+            rpc={rpc}
+            sessionId={sessionId}
+            modelLabel={modelLabel}
+            providerLabel={activeProfile?.provider ?? ''}
+            reasoningEffort={activeProfile?.reasoningEffort}
+            rest={rest}
+            onModelChange={(provider, model) => {
+              if (!activeName) return;
+              useProfilesStore
+                .getState()
+                .setModel(rest, activeName, provider, model, activeProfile?.reasoningEffort, activeProfile?.showReasoning)
+                .catch(() => {});
+            }}
+            onEffortChange={(effort) => {
+              if (!activeName) return;
+              const provider = activeProfile?.provider ?? '';
+              const model = activeProfile?.model ?? modelLabel;
+              useProfilesStore
+                .getState()
+                .setModel(rest, activeName, provider, model, effort, activeProfile?.showReasoning)
+                .catch(() => {});
+            }}
+          />
+        </div>
       </div>
-      <div className="hm-chat__bar-area">
-      <ProfileModelBar
-        profiles={profiles}
-        activeName={activeName}
-        messages={messages}
-        rpc={rpc}
-        sessionId={sessionId}
-        modelLabel={modelLabel}
-        providerLabel={activeProfile?.provider ?? ''}
-        rest={rest}
-        onModelChange={(provider, model) => {
-          if (activeName) useProfilesStore.getState().setModel(rest, activeName, provider, model).catch(() => {});
-        }}
-      />
       </div>
     </>
   );

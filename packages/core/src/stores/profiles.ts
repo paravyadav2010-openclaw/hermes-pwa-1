@@ -98,7 +98,8 @@ export const useProfilesStore = create<ProfilesStore>((set, get) => ({
       await rest.profileUpdateModel(name, {
         provider,
         model,
-        ...(reasoningEffort ? { reasoning_effort: reasoningEffort } : {}),
+        // include 'none' (falsy) — must use !== undefined
+        ...(reasoningEffort !== undefined ? { reasoning_effort: reasoningEffort } : {}),
         ...(showReasoning !== undefined ? { show_reasoning: showReasoning } : {}),
       });
       const profiles = get().profiles.map((p) => {
@@ -113,6 +114,20 @@ export const useProfilesStore = create<ProfilesStore>((set, get) => ({
       });
       set({ profiles });
       await get().load(rest);
+      // Keep effort if list payload still omits it.
+      const reloaded = get().profiles.map((p) => {
+        if (p.name !== name) return p;
+        return {
+          ...p,
+          ...(reasoningEffort !== undefined && p.reasoningEffort === undefined
+            ? { reasoningEffort }
+            : {}),
+          ...(showReasoning !== undefined && p.showReasoning === undefined
+            ? { showReasoning }
+            : {}),
+        };
+      });
+      set({ profiles: reloaded });
     } catch (err) {
       set({ error: err instanceof Error ? err.message : 'Failed to update profile model' });
       throw err;

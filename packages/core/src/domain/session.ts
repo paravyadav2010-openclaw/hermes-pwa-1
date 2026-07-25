@@ -16,7 +16,10 @@ export interface Message {
   role: MessageRole;
   text: string;
   toolCalls?: ToolCall[];
+  /** Latest/primary thinking blob (joined for persistence/compat). */
   thinking?: string;
+  /** Separate reasoning phases (e.g. before tools vs after tools). */
+  thinkingParts?: string[];
   createdAt: number | undefined;
 }
 
@@ -50,6 +53,19 @@ const SOURCE_LABELS: Record<string, string> = {
   gateway: 'Gateway',
   local: 'Local',
   tui: 'TUI',
+  telegram: 'Telegram',
+  discord: 'Discord',
+  slack: 'Slack',
+  whatsapp: 'WhatsApp',
+  signal: 'Signal',
+  matrix: 'Matrix',
+  mattermost: 'Mattermost',
+  email: 'Email',
+  sms: 'SMS',
+  webhook: 'Webhook',
+  api_server: 'API',
+  cron: 'Cron',
+  curator: 'Curator',
 };
 
 const SOURCE_ALIASES: Record<string, string[]> = {
@@ -57,35 +73,17 @@ const SOURCE_ALIASES: Record<string, string[]> = {
   desktop: ['app', 'gui'],
   local: ['machine'],
   tui: ['terminal'],
+  telegram: ['tg'],
+  discord: ['dc'],
 };
 
 export const PWA_LOCAL_SESSION_SOURCE_IDS = ['cli', 'codex', 'desktop', 'gateway', 'local', 'tui'] as const;
 
-// Backend currently supports exclude_sources but not include_sources. Keep this
-// list isolated at the transport boundary; do not model these sources in PWA UI.
-export const PWA_NON_LOCAL_SESSION_SOURCES = [
-  'cron',
-  'curator',
-  'telegram',
-  'discord',
-  'slack',
-  'mattermost',
-  'matrix',
-  'signal',
-  'whatsapp',
-  'bluebubbles',
-  'homeassistant',
-  'email',
-  'sms',
-  'webhook',
-  'api_server',
-  'weixin',
-  'wecom',
-  'qqbot',
-  'yuanbao',
-  'dingtalk',
-  'feishu',
-] as const;
+/** Sources hidden from the Sessions list (internal noise only). Cron run sessions are included. */
+export const PWA_EXCLUDED_SESSION_SOURCES = ['curator'] as const;
+
+/** @deprecated Use PWA_EXCLUDED_SESSION_SOURCES — messaging sources are now included. */
+export const PWA_NON_LOCAL_SESSION_SOURCES = PWA_EXCLUDED_SESSION_SOURCES;
 
 export function normalizeSessionSource(source: null | string | undefined): string | null {
   const id = source?.trim().toLowerCase();
@@ -141,10 +139,11 @@ export function toSession(raw: Record<string, unknown>): Session {
   const source = optionalString(raw.source);
   const originSource = optionalString(raw.origin_source ?? raw.originSource) ?? source;
   const currentSource = optionalString(raw.current_source ?? raw.currentSource) ?? source;
+  const rawTitle = typeof raw.title === 'string' ? raw.title.trim() : '';
 
   return {
     id: String(raw.id ?? raw.session_id ?? 'unknown'),
-    title: typeof raw.title === 'string' && raw.title.trim() ? raw.title : 'Untitled',
+    title: rawTitle || 'Untitled',
     updatedAt: Number(raw.updated_at ?? raw.updatedAt ?? raw.last_active ?? raw.started_at ?? 0),
     messageCount: optionalNumber(raw.message_count ?? raw.messageCount),
     profile: optionalString(raw.profile),
@@ -159,6 +158,31 @@ export function toSession(raw: Record<string, unknown>): Session {
     startedAt: optionalNumber(raw.started_at ?? raw.startedAt),
     lastActive: optionalNumber(raw.last_active ?? raw.lastActive),
   };
+}
+
+/** True for empty / serial auto labels like "Tui Session #3", "Untitled", "Chat". */
+export function isPlaceholderSessionTitle(title: string | undefined): boolean {
+  const t = (title ?? '').trim();
+  if (!t) return true;
+  const lower = t.toLowerCase();
+  if (lower === 'untitled' || lower === 'new chat' || lower === 'chat') return true;
+  // Gateway/TUI serial stubs: "Tui Session #3", "CLI Session 12", "Session #1"
+  if (/^(tui|cli|codex|desktop|gateway|local|webui|api)\s+session(\s*#?\s*\d+)?$/i.test(t)) return true;
+  if (/^session(\s*#?\s*\d+)?$/i.test(t)) return true;
+  // Bare ids / short random stubs
+  if (/^[0-9a-f]{6,}$/i.test(t) && t.length <= 16) return true;
+  return false;
+}
+
+/** Prefer a meaningful title over serial stubs when merging session rows. */
+export function preferSessionTitle(current: string | undefined, incoming: string | undefined): string {
+  const a = (current ?? '').trim();
+  const b = (incoming ?? '').trim();
+  const aPh = isPlaceholderSessionTitle(a);
+  const bPh = isPlaceholderSessionTitle(b);
+  if (!aPh && a) return a;
+  if (!bPh && b) return b;
+  return b || a || 'Untitled';
 }
 
 export function sessionsFromResult(raw: unknown): Session[] {
@@ -192,6 +216,7 @@ function preferSessionRow(current: Session | undefined, incoming: Session): Sess
   if (!current) return incoming;
   const mergeMetadata = (preferred: Session, other: Session): Session => ({
     ...preferred,
+    title: preferSessionTitle(preferred.title, other.title),
     lineageRootId: preferred.lineageRootId ?? other.lineageRootId,
     source: preferred.source ?? other.source,
     originSource: preferred.originSource ?? other.originSource ?? preferred.source ?? other.source,

@@ -1,5 +1,10 @@
 import { create } from 'zustand';
-import { mergeSessionsByLineage, sessionPinId, type Session } from '../domain/session';
+import {
+  isPlaceholderSessionTitle,
+  mergeSessionsByLineage,
+  sessionPinId,
+  type Session,
+} from '../domain/session';
 import type { RpcClient } from '../transport/jsonrpc';
 import type { RestClient } from '../transport/rest';
 import { LONG_RPC_TIMEOUT_MS } from '../transport/timeouts';
@@ -17,6 +22,8 @@ export interface SessionsStore {
   resume(rpc: RpcClient, sessionId: string, profile?: string): Promise<Record<string, unknown> | undefined>;
   archive(rest: RestClient, session: Session, archived: boolean): Promise<void>;
   delete(rest: RestClient, session: Session): Promise<void>;
+  /** Update title for a live or durable session id (header + drawer). */
+  applyTitle(sessionId: string | undefined, title: string, options?: { force?: boolean }): void;
   togglePin(session: Session): void;
   setPinnedIds(ids: string[]): void;
 }
@@ -49,6 +56,10 @@ function sessionIdFromResult(raw: unknown): string {
   return id;
 }
 
+function sessionMatchesId(session: Session, sessionId: string): boolean {
+  return session.id === sessionId || session.lineageRootId === sessionId;
+}
+
 const initialPinnedIds = readPinnedIds();
 
 export const useSessionsStore = create<SessionsStore>((set, get) => ({
@@ -60,8 +71,12 @@ export const useSessionsStore = create<SessionsStore>((set, get) => ({
   async load(rest) {
     set({ loading: true, error: undefined });
     try {
-      const sessions = await rest.profileSessions();
-      set({ sessions: mergeSessionsByLineage([], sessions ?? []), loading: false });
+      const incoming = await rest.profileSessions();
+      // Keep meaningful local titles when the API still returns serial stubs.
+      set((state) => ({
+        sessions: mergeSessionsByLineage(state.sessions, incoming ?? []),
+        loading: false,
+      }));
     } catch (err) {
       set({ loading: false, error: err instanceof Error ? err.message : 'Failed to load sessions.' });
     }
@@ -117,6 +132,47 @@ export const useSessionsStore = create<SessionsStore>((set, get) => ({
       set({ error: err instanceof Error ? err.message : 'Failed to delete session.' });
       throw err;
     }
+  },
+
+  applyTitle(sessionId, title, options) {
+    const nextTitle = title.replace(/\s+/g, ' ').trim();
+    if (!sessionId || !nextTitle) return;
+    const force = Boolean(options?.force);
+    set((state) => {
+      let matched = false;
+      const sessions = state.sessions.map((item) => {
+        if (!sessionMatchesId(item, sessionId)) return item;
+        matched = true;
+        if (!force && !isPlaceholderSessionTitle(item.title)) return item;
+        if (item.title.trim() === nextTitle) return item;
+        return { ...item, title: nextTitle, updatedAt: Date.now() };
+      });
+
+      if (!matched) {
+        return {
+          sessions: [
+            {
+              id: sessionId,
+              title: nextTitle,
+              updatedAt: Date.now(),
+              messageCount: undefined,
+              profile: undefined,
+            },
+            ...sessions,
+          ],
+        };
+      }
+
+      if (force) {
+        return {
+          sessions: state.sessions.map((item) =>
+            sessionMatchesId(item, sessionId) ? { ...item, title: nextTitle, updatedAt: Date.now() } : item,
+          ),
+        };
+      }
+
+      return { sessions };
+    });
   },
 
   togglePin(session) {

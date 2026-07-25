@@ -323,7 +323,8 @@ describe('AppShell', () => {
   it('navigates via drawer and updates title', async () => {
     render(<AppShell connectionState="connected" rpc={rpcMock} rest={restMock} />);
     fireEvent.click(screen.getByRole('button', { name: /open menu/i }));
-    fireEvent.click(screen.getByRole('button', { name: 'Approvals' }));
+    const drawer = screen.getByRole('dialog', { name: /navigation menu/i });
+    fireEvent.click(within(drawer).getByRole('button', { name: 'Approvals' }));
     await waitFor(() =>
       expect(screen.getByRole('heading', { name: 'Approvals' })).toBeInTheDocument(),
     );
@@ -335,7 +336,8 @@ describe('AppShell', () => {
   it('switches to kanban via drawer', async () => {
     render(<AppShell connectionState="connected" rpc={rpcMock} rest={restMock} />);
     fireEvent.click(screen.getByRole('button', { name: /open menu/i }));
-    fireEvent.click(screen.getByRole('button', { name: /^Kanban$/i }));
+    const drawer = screen.getByRole('dialog', { name: /navigation menu/i });
+    fireEvent.click(within(drawer).getByRole('button', { name: /^Kanban$/i }));
     await waitFor(() =>
       expect(screen.getByRole('heading', { name: 'Kanban' })).toBeInTheDocument(),
     );
@@ -344,10 +346,20 @@ describe('AppShell', () => {
   it('navigates to settings screen', async () => {
     render(<AppShell connectionState="connected" rpc={rpcMock} rest={restMock} />);
     fireEvent.click(screen.getByRole('button', { name: /open menu/i }));
-    fireEvent.click(screen.getByRole('button', { name: 'Settings' }));
+    const drawer = screen.getByRole('dialog', { name: /navigation menu/i });
+    fireEvent.click(within(drawer).getByRole('button', { name: 'Settings' }));
     await waitFor(() =>
       expect(screen.getByRole('heading', { name: 'Settings' })).toBeInTheDocument(),
     );
+  });
+
+  it('bottom bar order is sessions, chat, home, kanban, settings', () => {
+    render(<AppShell connectionState="connected" rpc={rpcMock} rest={restMock} />);
+    const nav = screen.getByRole('navigation', { name: /Main navigation/i });
+    const labels = within(nav)
+      .getAllByRole('button')
+      .map((btn) => btn.getAttribute('aria-label'));
+    expect(labels).toEqual(['Sessions', 'Chat', 'Home', 'Kanban', 'Settings']);
   });
 
   it('shows model details in drawer footer and opens settings', async () => {
@@ -401,7 +413,8 @@ describe('AppShell', () => {
   it('keeps the current screen persisted when the PWA is backgrounded or closed', async () => {
     render(<AppShell connectionState="connected" rpc={rpcMock} rest={restMock} />);
     fireEvent.click(screen.getByRole('button', { name: /open menu/i }));
-    fireEvent.click(screen.getByRole('button', { name: 'Kanban' }));
+    const drawer = screen.getByRole('dialog', { name: /navigation menu/i });
+    fireEvent.click(within(drawer).getByRole('button', { name: 'Kanban' }));
     await waitFor(() => expect(screen.getByRole('heading', { name: 'Kanban' })).toBeInTheDocument());
     localStorage.removeItem('hermes-mobile-screen');
     window.dispatchEvent(new Event('pagehide'));
@@ -578,9 +591,11 @@ describe('AppShell', () => {
 
     render(<AppShell connectionState="connected" rpc={rpcMock} rest={restMock} />);
 
-    await waitFor(() => expect(restMock.sessionMessages).toHaveBeenCalledWith('stored-from-cache', 'default'));
-    await waitFor(() => expect(useChatStore.getState().messages.some((message) => message.text === 'waiting for approval')).toBe(true));
-    expect(useChatStore.getState().streaming).toBe(false);
+    expect(screen.getByRole('heading', { name: 'Approvals' })).toBeInTheDocument();
+    // Active streaming turns must not be overwritten by background history refresh.
+    expect(restMock.sessionMessages).not.toHaveBeenCalled();
+    expect(useChatStore.getState().streaming).toBe(true);
+    expect(useChatStore.getState().messages.some((message) => message.id === 'a-local')).toBe(true);
   });
 
   it('syncs an existing browser push subscription after connected startup using the active profile', async () => {

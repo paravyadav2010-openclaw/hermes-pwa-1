@@ -172,6 +172,7 @@ export interface SessionInfoPayload {
 export type JsonRpcEventType =
   | 'gateway.ready'
   | 'session.info'
+  | 'session.title'
   | 'message.start'
   | 'message.delta'
   | 'message.complete'
