@@ -384,6 +384,96 @@ a {
   display: flex;
   flex-direction: column;
   min-height: 0;
+  touch-action: pan-y;
+  padding-bottom: var(--hm-bottom-bar-height, 64px);
+}
+
+/* Bottom Bar */
+.hm-bottom-bar {
+  position: fixed;
+  bottom: 0;
+  left: 0;
+  right: 0;
+  height: var(--hm-bottom-bar-height, 64px);
+  padding: 8px 8px env(safe-area-inset-bottom, 8px) 8px;
+  display: flex;
+  justify-content: space-around;
+  align-items: flex-start;
+  background: var(--hm-color-bg);
+  border-top: 1px solid var(--hm-color-border);
+  z-index: 100;
+  -webkit-backdrop-filter: blur(20px);
+  backdrop-filter: blur(20px);
+}
+
+.hm-bottom-bar__tab {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 2px;
+  min-width: 0;
+  flex: 1;
+  padding: 4px 0;
+  border: 0;
+  background: transparent;
+  color: var(--hm-color-muted);
+  font-size: 10px;
+  font-family: var(--hm-font-sans);
+  cursor: pointer;
+  -webkit-tap-highlight-color: transparent;
+  transition: color 0.15s;
+}
+
+.hm-bottom-bar__tab--active {
+  color: var(--hm-color-primary, #2540ff);
+}
+
+.hm-bottom-bar__tab--home {
+  margin-top: -16px;
+}
+
+.hm-bottom-bar__home-icon {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 48px;
+  height: 48px;
+  border-radius: 50%;
+  background: var(--hm-color-primary, #2540ff);
+  color: #fff;
+  box-shadow: 0 4px 12px rgba(37, 64, 255, 0.35);
+}
+
+.hm-bottom-bar__tab--home.hm-bottom-bar__tab--active .hm-bottom-bar__home-icon {
+  background: var(--hm-color-primary, #2540ff);
+  box-shadow: 0 4px 16px rgba(37, 64, 255, 0.5);
+}
+
+.hm-bottom-bar__label {
+  font-size: 10px;
+  line-height: 1.2;
+}
+
+.hm-bottom-bar__icon-wrap {
+  position: relative;
+  display: inline-flex;
+}
+
+.hm-bottom-bar__badge {
+  position: absolute;
+  top: -4px;
+  right: -10px;
+  min-width: 16px;
+  height: 16px;
+  padding: 0 4px;
+  border-radius: 8px;
+  background: var(--hm-color-danger, #dc4b46);
+  color: #fff;
+  font-size: 10px;
+  font-weight: 600;
+  line-height: 16px;
+  text-align: center;
 }
 
 /* Drawer */

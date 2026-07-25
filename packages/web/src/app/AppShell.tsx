@@ -7,6 +7,7 @@ import { Icon, type IconName } from '../components/Icon';
 import { UpdateNotification } from '../components/UpdateNotification';
 import { LazyScreenErrorBoundary } from './LazyScreenErrorBoundary';
 import { usePresence } from '../hooks/usePresence';
+import { useSwipeGesture } from '../hooks/useSwipeGesture';
 import { getInitialScreen, persistScreen } from '../lib/screenStorage';
 import { syncPushSubscription } from '../pwa/push';
 
@@ -269,6 +270,7 @@ export function AppShell({ connectionState, rpc, rest, onRetry }: AppShellProps)
   const drawerPanelRef = useRef<HTMLElement>(null);
   const drawerCloseRef = useRef<HTMLButtonElement>(null);
   const drawerPreviousFocusRef = useRef<HTMLElement | null>(null);
+  const screenRef = useRef<HTMLElement>(null);
   const pendingRefreshInFlightRef = useRef(false);
   const chatRecoveryInFlightRef = useRef(false);
   const pushSyncInFlightRef = useRef(false);
@@ -545,6 +547,19 @@ export function AppShell({ connectionState, rpc, rest, onRetry }: AppShellProps)
     setDrawerOpen(false);
   }
 
+  const TAB_ORDER: Screen[] = ['chat', 'sessions', 'home', 'approvals', 'kanban'];
+
+  useSwipeGesture(screenRef, {
+    onSwipeRight: () => {
+      const idx = TAB_ORDER.indexOf(screen);
+      if (idx >= 0) navigate(TAB_ORDER[(idx - 1 + TAB_ORDER.length) % TAB_ORDER.length]);
+    },
+    onSwipeLeft: () => {
+      const idx = TAB_ORDER.indexOf(screen);
+      if (idx >= 0) navigate(TAB_ORDER[(idx + 1) % TAB_ORDER.length]);
+    },
+  }, true);
+
   function handleNewSession() {
     startNewSession(activeName);
     navigate('chat');
@@ -625,7 +640,7 @@ export function AppShell({ connectionState, rpc, rest, onRetry }: AppShellProps)
       ) : null}
 
       {/* ── Screen ───────────────────────────────────────────────── */}
-      <main className="hm-screen">
+      <main className="hm-screen" ref={screenRef}>
         <LazyScreenErrorBoundary key={screen}>
           <Suspense fallback={<p className="hm-muted hm-loading">Loading…</p>}>
             {screen === 'chat'      && <Chat key={activeName ?? 'default'} rpc={rpc} rest={rest} />}
@@ -772,6 +787,61 @@ export function AppShell({ connectionState, rpc, rest, onRetry }: AppShellProps)
           </nav>
         </div>
       )}
+
+      {/* ── Bottom Bar ────────────────────────────────────────────── */}
+      <nav className="hm-bottom-bar" role="navigation" aria-label="Main navigation">
+        <button
+          className={`hm-bottom-bar__tab${screen === 'chat' ? ' hm-bottom-bar__tab--active' : ''}`}
+          onClick={() => navigate('chat')}
+          aria-label="Chat"
+          aria-current={screen === 'chat' ? 'page' : undefined}
+        >
+          <Icon name="chat" size={22} />
+          <span className="hm-bottom-bar__label">Chat</span>
+        </button>
+        <button
+          className={`hm-bottom-bar__tab${screen === 'sessions' ? ' hm-bottom-bar__tab--active' : ''}`}
+          onClick={() => navigate('sessions')}
+          aria-label="Sessions"
+          aria-current={screen === 'sessions' ? 'page' : undefined}
+        >
+          <Icon name="sessions" size={22} />
+          <span className="hm-bottom-bar__label">Sessions</span>
+        </button>
+        <button
+          className={`hm-bottom-bar__tab hm-bottom-bar__tab--home${screen === 'home' ? ' hm-bottom-bar__tab--active' : ''}`}
+          onClick={() => navigate('home')}
+          aria-label="Home"
+          aria-current={screen === 'home' ? 'page' : undefined}
+        >
+          <span className="hm-bottom-bar__home-icon">
+            <Icon name="home" size={26} />
+          </span>
+        </button>
+        <button
+          className={`hm-bottom-bar__tab${screen === 'approvals' ? ' hm-bottom-bar__tab--active' : ''}`}
+          onClick={() => navigate('approvals')}
+          aria-label="Approvals"
+          aria-current={screen === 'approvals' ? 'page' : undefined}
+        >
+          <span className="hm-bottom-bar__icon-wrap">
+            <Icon name="shield" size={22} />
+            {pendingApprovals > 0 && (
+              <span className="hm-bottom-bar__badge">{pendingApprovals}</span>
+            )}
+          </span>
+          <span className="hm-bottom-bar__label">Approvals</span>
+        </button>
+        <button
+          className={`hm-bottom-bar__tab${screen === 'kanban' ? ' hm-bottom-bar__tab--active' : ''}`}
+          onClick={() => navigate('kanban')}
+          aria-label="Kanban"
+          aria-current={screen === 'kanban' ? 'page' : undefined}
+        >
+          <Icon name="kanban" size={22} />
+          <span className="hm-bottom-bar__label">Kanban</span>
+        </button>
+      </nav>
     </div>
   );
 }

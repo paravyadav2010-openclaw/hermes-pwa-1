@@ -93,6 +93,7 @@
     "e2e:sheet-a11y": "node scripts/e2e-sheet-a11y.mjs"
   },
   "dependencies": {
+    "http-proxy": "^1.18.1",
     "qrcode-generator": "^1.5.2",
     "react": "^18.3.0",
     "react-dom": "^18.3.0",
