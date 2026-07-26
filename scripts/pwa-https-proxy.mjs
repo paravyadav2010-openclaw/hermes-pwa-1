@@ -99,13 +99,25 @@ function proxyToDashboard(req, res) {
   };
 
   const proxyReq = http.request(options, (proxyRes) => {
+    // Rewrite Set-Cookie headers for HTTPS compatibility:
+    // - Add Secure flag (required on iOS Safari over HTTPS)
+    // - Add SameSite=None (cross-origin via proxy)
+    const headers = { ...proxyRes.headers };
+    if (headers['set-cookie']) {
+      const cookies = Array.isArray(headers['set-cookie']) ? headers['set-cookie'] : [headers['set-cookie']];
+      headers['set-cookie'] = cookies.map((c) => {
+        let cookie = c;
+        if (!cookie.includes('Secure')) cookie += '; Secure';
+        if (cookie.includes('SameSite=lax') || cookie.includes('SameSite=strict')) {
+          cookie = cookie.replace(/SameSite=\w+/i, 'SameSite=None');
+        }
+        return cookie;
+      });
+    }
     // Forward CORS headers for PWA
-    const headers = {
-      ...proxyRes.headers,
-      'Access-Control-Allow-Origin': '*',
-      'Access-Control-Allow-Methods': 'GET, POST, PUT, DELETE, OPTIONS, PATCH',
-      'Access-Control-Allow-Headers': '*',
-    };
+    headers['Access-Control-Allow-Origin'] = '*';
+    headers['Access-Control-Allow-Methods'] = 'GET, POST, PUT, DELETE, OPTIONS, PATCH';
+    headers['Access-Control-Allow-Headers'] = '*';
     res.writeHead(proxyRes.statusCode, headers);
     proxyRes.pipe(res);
   });
