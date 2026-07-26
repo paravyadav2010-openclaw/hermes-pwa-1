@@ -136,7 +136,7 @@ describe('makeRestClient', () => {
     const sessions = await client.profileSessions();
 
     expect(httpMock).toHaveBeenCalledTimes(1);
-    expect(queryForCall(0).get('profile')).toBe('default');
+    expect(queryForCall(0).get('profile')).toBe('all');
     expect(queryForCall(0).get('limit')).toBe('500');
     expect(queryForCall(0).get('exclude_sources')).toContain('curator');
     expect(queryForCall(0).get('exclude_sources') ?? '').not.toContain('cron');
@@ -145,16 +145,22 @@ describe('makeRestClient', () => {
     expect(sessions.map((s) => s.id)).toEqual(['local-chat', 'tg-chat']);
   });
 
-  it('profileSessions scopes the local slice to the active profile', async () => {
+  it('profileSessions defaults to all profiles; explicit name scopes one profile', async () => {
     client.setActiveProfile('dev');
     httpMock.mockResolvedValueOnce({ sessions: [{ id: 'dev-local', title: 'Dev local', source: 'tui', last_active: 1 }] });
 
-    const sessions = await client.profileSessions();
+    const sessions = await client.profileSessions('dev');
 
     expect(httpMock.setProfile).toHaveBeenCalledWith('dev');
     expect(httpMock).toHaveBeenCalledTimes(1);
     expect(queryForCall(0).get('profile')).toBe('dev');
     expect(sessions.map((s) => s.id)).toEqual(['dev-local']);
+  });
+
+  it('profileSessions with no arg requests profile=all', async () => {
+    httpMock.mockResolvedValueOnce({ sessions: [{ id: 'a', title: 'A', source: 'tui', last_active: 1, profile: 'default' }] });
+    await client.profileSessions();
+    expect(queryForCall(0).get('profile')).toBe('all');
   });
 
   it('profileSessions does not call the PWA messaging binding shim in the TUI/CLI release scope', async () => {

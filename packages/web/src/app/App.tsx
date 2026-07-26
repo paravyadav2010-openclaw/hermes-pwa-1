@@ -73,9 +73,9 @@ export function App() {
   if (connection.state === 'init' || connection.state === 'ticketing') {
     return (
       <div className="hm-app-shell">
-        <div className="hm-empty-state">
-          <h1>Hermes Mobile</h1>
-          <p className="hm-muted">Connecting…</p>
+        <div className="hm-terminal-boot">
+          <h1 className="hm-terminal-title">Hermes Mobile</h1>
+          <p className="hm-terminal-sub">Connecting<span className="hm-terminal-dots">...</span></p>
         </div>
       </div>
     );
@@ -90,9 +90,9 @@ export function App() {
         : 'Offline';
     return (
       <div className="hm-app-shell">
-        <div className="hm-empty-state">
-          <h1>Hermes Mobile</h1>
-          <p className="hm-muted">{connection.error ?? fallback}</p>
+        <div className="hm-terminal-boot">
+          <h1 className="hm-terminal-title">Hermes Mobile</h1>
+          <p className="hm-terminal-sub hm-terminal-sub--err">{connection.error ?? fallback}</p>
           {canRetry ? (
             <button
               className="hm-primary"

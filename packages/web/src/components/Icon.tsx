@@ -38,7 +38,8 @@ export type IconName =
   | 'sparkle'
   | 'archive'
   | 'logout'
-  | 'copy';
+  | 'copy'
+  | 'more';
 
 interface IconProps extends Omit<SVGProps<SVGSVGElement>, 'ref'> {
   name: IconName;
@@ -138,6 +139,11 @@ const ICONS: Record<IconName, IconPart[]> = {
   copy: [
     ['rect', { x: 9, y: 9, width: 11, height: 11, rx: 2 }],
     ['path', { d: 'M5 15V5a2 2 0 0 1 2-2h10' }],
+  ],
+  more: [
+    ['circle', { cx: 12, cy: 5, r: 1.4 }],
+    ['circle', { cx: 12, cy: 12, r: 1.4 }],
+    ['circle', { cx: 12, cy: 19, r: 1.4 }],
   ],
 };
 

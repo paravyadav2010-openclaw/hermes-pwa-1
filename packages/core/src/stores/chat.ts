@@ -988,16 +988,17 @@ function preserveLineageTail(opened: Awaited<ReturnType<typeof openDurableSessio
 
 async function openDurableSession(rest: RestClient, rpc: RpcClient, durableSessionId: string, profile?: string) {
   const openableSessionId = resolveOpenableStoredSessionId(durableSessionId);
-  let snapshotMessages: Message[] | undefined;
-  let snapshotError: unknown;
-  try {
-    snapshotMessages = messagesFromResult(await rest.sessionMessages(openableSessionId, profile));
-  } catch (err) {
-    snapshotError = err;
-  }
 
-  try {
-    const resumed = await resumeDurableSession(rpc, openableSessionId, profile);
+  // Fire both network calls in parallel — they're independent.
+  const [snapshotResult, resumeResult] = await Promise.allSettled([
+    rest.sessionMessages(openableSessionId, profile).then(messagesFromResult),
+    resumeDurableSession(rpc, openableSessionId, profile),
+  ]);
+
+  const snapshotMessages = snapshotResult.status === 'fulfilled' ? snapshotResult.value : undefined;
+  const resumed = resumeResult.status === 'fulfilled' ? resumeResult.value : undefined;
+
+  if (resumed) {
     return {
       sessionId: resumed.sessionId,
       storedSessionId: resumed.storedSessionId ?? openableSessionId,
@@ -1005,18 +1006,22 @@ async function openDurableSession(rest: RestClient, rpc: RpcClient, durableSessi
       streaming: false,
       error: undefined,
     };
-  } catch (resumeError) {
-    if (snapshotMessages) {
-      return {
-        sessionId: undefined,
-        storedSessionId: openableSessionId,
-        messages: snapshotMessages,
-        streaming: false,
-        error: userFacingChatError(resumeError, 'Failed to resume session runtime.'),
-      };
-    }
-    throw snapshotError ?? resumeError;
   }
+
+  if (snapshotMessages) {
+    const resumeError = resumeResult.status === 'rejected' ? resumeResult.reason : new Error('Resume failed');
+    return {
+      sessionId: undefined,
+      storedSessionId: openableSessionId,
+      messages: snapshotMessages,
+      streaming: false,
+      error: userFacingChatError(resumeError, 'Failed to resume session runtime.'),
+    };
+  }
+
+  throw resumeResult.status === 'rejected' ? resumeResult.reason :
+        snapshotResult.status === 'rejected' ? snapshotResult.reason :
+        new Error('Failed to open session.');
 }
 
 async function refreshDurableHistory(rest: RestClient, durableSessionId: string, localMessages: Message[], profile?: string) {
@@ -1170,8 +1175,8 @@ export const useChatStore = create<ChatStore>((set, get) => ({
     }
 
     if (durableSessionId) {
-      const beforeOpen = get();
-      set({ streaming: false, error: undefined });
+      const beforeOpen = { ...get(), messages: [] as Message[] };
+      set({ streaming: false, error: undefined, messages: [] });
       const openAnchor = get();
       try {
         const opened = await openDurableSession(rest, rpc, durableSessionId, cacheProfile);
@@ -1214,8 +1219,10 @@ export const useChatStore = create<ChatStore>((set, get) => ({
 
   async resumeSessionIntoChat(rest, rpc, storedSessionId, profile) {
     const cacheProfile = resolveCacheProfile(profile, get().cacheProfile);
-    const beforeOpen = get();
-    set({ streaming: false, error: undefined, cacheProfile });
+    // Clear messages before switching so preserveLineageTail doesn't merge
+    // the old session's local messages into the new session.
+    const beforeOpen = { ...get(), messages: [] as Message[] };
+    set({ streaming: false, error: undefined, messages: [], cacheProfile });
     const anchor = get();
     try {
       const opened = await openDurableSession(rest, rpc, storedSessionId, cacheProfile);

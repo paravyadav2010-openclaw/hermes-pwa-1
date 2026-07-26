@@ -20,6 +20,8 @@ export function useSwipeGesture(
     if (!enabled) return;
 
     function onTouchStart(e: TouchEvent) {
+      // Skip if lightbox or another overlay is open
+      if (document.body.dataset.lightboxOpen) return;
       const t = e.touches[0];
       if (!t) return;
       touchRef.current = { x: t.clientX, y: t.clientY };

@@ -21,6 +21,15 @@ const MIME_TYPES = {
   '.woff': 'font/woff',
 };
 
+const VIDEO_EXT_MIME = {
+  '.mp4': 'video/mp4',
+  '.webm': 'video/webm',
+  '.mov': 'video/quicktime',
+  '.m4v': 'video/mp4',
+  '.avi': 'video/x-msvideo',
+  '.mkv': 'video/x-matroska',
+};
+
 const proxy = httpProxy.createProxyServer({
   target: HERMES_API,
   changeOrigin: true,
@@ -81,6 +90,32 @@ const server = http.createServer((req, res) => {
   if (req.method === 'OPTIONS') {
     res.writeHead(204);
     res.end();
+    return;
+  }
+
+  if (req.url.startsWith('/api/video')) {
+    // Serve raw video bytes directly from the filesystem.
+    // The ?path= parameter is an absolute path on this machine.
+    const qs = req.url.includes('?') ? req.url.split('?')[1] : '';
+    const params = new URLSearchParams(qs);
+    const filePath = params.get('path');
+    if (!filePath) { res.writeHead(400); res.end('missing path'); return; }
+    const decodedPath = decodeURIComponent(filePath);
+    const ext = path.extname(decodedPath).toLowerCase();
+    const mime = VIDEO_EXT_MIME[ext] || 'video/mp4';
+    try {
+      const stat = fs.statSync(decodedPath);
+      res.writeHead(200, {
+        'Content-Type': mime,
+        'Content-Length': stat.size,
+        'Accept-Ranges': 'bytes',
+        'Cache-Control': 'no-store',
+      });
+      fs.createReadStream(decodedPath).pipe(res);
+    } catch (e) {
+      res.writeHead(404, { 'Content-Type': 'text/plain' });
+      res.end(`file not found: ${decodedPath}`);
+    }
     return;
   }
 

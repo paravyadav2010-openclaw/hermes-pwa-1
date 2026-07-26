@@ -434,7 +434,7 @@ export function Composer({
             <span key={a.id} className={`hm-composer__chip ${a.error ? 'hm-composer__chip--error' : ''}`}>
               <span className="hm-composer__chip-name">{a.name}</span>
               {a.uploading && <span className="hm-composer__chip-spin" />}
-              {a.error && <span className="hm-composer__chip-error" aria-label={a.error} />}
+              {a.error && <span className="hm-composer__chip-error" aria-label={a.error}>{a.error}</span>}
               {!a.uploading && (
                 <button
                   type="button"

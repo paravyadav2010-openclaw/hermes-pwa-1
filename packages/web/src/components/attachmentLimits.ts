@@ -1,4 +1,4 @@
-export const MAX_ATTACHMENT_BYTES = 16 * 1024 * 1024;
+export const MAX_ATTACHMENT_BYTES = 100 * 1024 * 1024;
 export const MAX_ATTACHMENTS_PER_SELECTION = 5;
 
 const MAX_ATTACHMENT_MIB = Math.floor(MAX_ATTACHMENT_BYTES / (1024 * 1024));
@@ -17,7 +17,7 @@ const ALLOWED_ATTACHMENT_MIME_TYPES = new Set([
   'image/webp',
 ]);
 
-const ALLOWED_ATTACHMENT_MIME_PREFIXES = ['text/'];
+const ALLOWED_ATTACHMENT_MIME_PREFIXES = ['text/', 'video/'];
 
 export function attachmentTooLargeMessage(name: string): string {
   return `${name} is too large to upload (max ${MAX_ATTACHMENT_MIB} MB).`;

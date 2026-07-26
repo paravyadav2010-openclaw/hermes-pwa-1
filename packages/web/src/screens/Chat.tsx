@@ -770,7 +770,7 @@ export function Chat({ rpc, rest, onNavigate }: ChatProps) {
         name: safeName,
         data_url: dataUrl,
       });
-      const path = result?.ref_path ?? result?.file?.ref_path ?? result?.path ?? result?.file?.path;
+      const path = result?.path ?? result?.file?.path ?? result?.ref_path ?? result?.file?.ref_path;
       if (!path) throw new Error('Upload response did not include a path.');
       return { path };
     },
@@ -878,6 +878,10 @@ export function Chat({ rpc, rest, onNavigate }: ChatProps) {
                 .getState()
                 .setModel(rest, activeName, provider, model, effort, activeProfile?.showReasoning)
                 .catch(() => {});
+            }}
+            onResumeSession={() => {
+              const sid = useChatStore.getState().storedSessionId;
+              if (sid) useChatStore.getState().resumeSessionIntoChat(rest, rpc, sid, activeName);
             }}
           />
         </div>

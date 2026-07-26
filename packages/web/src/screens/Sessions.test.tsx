@@ -24,12 +24,33 @@ const restMock = {
   sessionUpdate: vi.fn().mockResolvedValue({ ok: true }),
   sessionDelete: vi.fn().mockResolvedValue({ ok: true }),
   setActiveProfile: vi.fn(),
+  profileList: vi.fn().mockResolvedValue([
+    { name: 'default', displayName: 'default', isActive: true },
+    { name: 'nuke', displayName: 'nuke', isActive: false },
+    { name: 'bax', displayName: 'bax', isActive: false },
+  ]),
+  profileActive: vi.fn().mockResolvedValue({ active: 'default', current: 'default' }),
 } as unknown as import('@hermes-pwa/core').RestClient;
 
 describe('Sessions screen', () => {
   beforeEach(() => {
-    useSessionsStore.setState({ sessions: [], loading: false, error: undefined, pinnedIds: [] });
-    useProfilesStore.setState({ activeName: 'default', currentName: 'default', profiles: [{ name: 'default', displayName: 'default', isActive: true }], loading: false, error: undefined });
+    useSessionsStore.setState({ sessions: [], loading: false, error: undefined, pinnedIds: [], profileFilter: 'all' });
+    useProfilesStore.setState({
+      activeName: 'default',
+      currentName: 'default',
+      profiles: [
+        { name: 'default', displayName: 'default', isActive: true },
+        { name: 'nuke', displayName: 'nuke', isActive: false },
+        { name: 'bax', displayName: 'bax', isActive: false },
+      ],
+      loading: false,
+      error: undefined,
+    });
+    try {
+      window.localStorage.setItem('hermes-pwa.sessionsProfileFilter.v1', 'all');
+    } catch {
+      // ignore
+    }
     vi.clearAllMocks();
     vi.mocked(restMock.profileSessions).mockResolvedValue([]);
     vi.mocked(restMock.sessionUpdate).mockResolvedValue({ ok: true });
@@ -79,36 +100,61 @@ describe('Sessions screen', () => {
         source: 'cli',
         originSource: 'cli',
         currentSource: 'cli',
+        profile: 'default',
       }),
-      session({ id: 'tui-1', title: 'Terminal thread', source: 'tui', originSource: 'tui', currentSource: 'tui' }),
+      session({ id: 'tui-1', title: 'Terminal thread', source: 'tui', originSource: 'tui', currentSource: 'tui', profile: 'default' }),
       session({
         id: 'mixed-1',
         title: 'Mixed local',
         source: 'tui',
         originSource: 'cli',
         currentSource: 'tui',
+        profile: 'default',
       }),
     ]);
     render(<Sessions rpc={rpcMock} rest={restMock} onSessionOpen={vi.fn()} />);
     await waitFor(() => expect(screen.getByText('CLI thread')).toBeInTheDocument());
     expect(screen.getByText('Terminal thread')).toBeInTheDocument();
     expect(screen.getByText('Mixed local')).toBeInTheDocument();
-    expect(screen.getByText('Current: TUI')).toBeInTheDocument();
+    // Compact meta uses →TUI when current source differs from origin.
+    expect(screen.getByText(/→TUI/i)).toBeInTheDocument();
 
     fireEvent.change(screen.getByPlaceholderText(/Search/i), { target: { value: 'tui' } });
     expect(screen.getByText('Terminal thread')).toBeInTheDocument();
     expect(screen.getByText('Mixed local')).toBeInTheDocument();
     fireEvent.change(screen.getByPlaceholderText(/Search/i), { target: { value: '' } });
 
-    fireEvent.click(screen.getByRole('tab', { name: /CLI/i }));
+    const sourceSelect = screen.getByTestId('sessions-source-select');
+    fireEvent.change(sourceSelect, { target: { value: 'cli' } });
     expect(screen.getByText('CLI thread')).toBeInTheDocument();
     expect(screen.getByText('Mixed local')).toBeInTheDocument();
     expect(screen.queryByText('Terminal thread')).not.toBeInTheDocument();
 
-    fireEvent.click(screen.getByRole('tab', { name: /TUI/i }));
+    fireEvent.change(sourceSelect, { target: { value: 'tui' } });
     expect(screen.getByText('Terminal thread')).toBeInTheDocument();
     expect(screen.queryByText('CLI thread')).not.toBeInTheDocument();
     expect(screen.queryByText('Mixed local')).not.toBeInTheDocument();
+  });
+
+  it('filters sessions by profile dropdown', async () => {
+    vi.mocked(restMock.profileSessions).mockResolvedValue([
+      session({ id: 'd1', title: 'Default work', profile: 'default', source: 'tui' }),
+      session({ id: 'n1', title: 'Nuke work', profile: 'nuke', source: 'telegram' }),
+      session({ id: 'b1', title: 'Bax work', profile: 'bax', source: 'cli' }),
+    ]);
+    render(<Sessions rpc={rpcMock} rest={restMock} onSessionOpen={vi.fn()} />);
+    await waitFor(() => expect(screen.getByText('Default work')).toBeInTheDocument());
+    expect(screen.getByText('Nuke work')).toBeInTheDocument();
+    expect(screen.getByText('Bax work')).toBeInTheDocument();
+
+    fireEvent.change(screen.getByTestId('sessions-profile-select'), { target: { value: 'nuke' } });
+    expect(screen.getByText('Nuke work')).toBeInTheDocument();
+    expect(screen.queryByText('Default work')).not.toBeInTheDocument();
+    expect(screen.queryByText('Bax work')).not.toBeInTheDocument();
+
+    const sourceSelect = screen.getByTestId('sessions-source-select') as HTMLSelectElement;
+    // Only active sources for the filtered profile — Telegram only (+ All).
+    expect(Array.from(sourceSelect.options).map((o) => o.value)).toEqual(['all', 'telegram']);
   });
 
   it('searches by title', async () => {
@@ -153,12 +199,14 @@ describe('Sessions screen', () => {
 
     render(<Sessions rpc={rpcMock} rest={restMock} onSessionOpen={vi.fn()} />);
     await waitFor(() => expect(screen.getByText('Old session')).toBeInTheDocument());
-    fireEvent.click(screen.getByRole('button', { name: /Archive session: Old session/i }));
+    fireEvent.click(screen.getByRole('button', { name: /More actions: Old session/i }));
+    fireEvent.click(screen.getByRole('menuitem', { name: /^Archive$/i }));
 
     await waitFor(() => expect(restMock.sessionUpdate).toHaveBeenCalledWith('sess-1', { archived: true, profile: 'default' }));
     fireEvent.click(screen.getByRole('tab', { name: 'Archived' }));
     expect(screen.getByText('Old session')).toBeInTheDocument();
-    fireEvent.click(screen.getByRole('button', { name: /Restore session: Old session/i }));
+    fireEvent.click(screen.getByRole('button', { name: /More actions: Old session/i }));
+    fireEvent.click(screen.getByRole('menuitem', { name: /^Restore$/i }));
     await waitFor(() => expect(restMock.sessionUpdate).toHaveBeenLastCalledWith('sess-1', { archived: false, profile: 'default' }));
     confirm.mockRestore();
   });
@@ -171,7 +219,8 @@ describe('Sessions screen', () => {
 
     render(<Sessions rpc={rpcMock} rest={restMock} onSessionOpen={vi.fn()} />);
     await waitFor(() => expect(screen.getByText('Trash me')).toBeInTheDocument());
-    fireEvent.click(screen.getByRole('button', { name: /Delete session: Trash me/i }));
+    fireEvent.click(screen.getByRole('button', { name: /More actions: Trash me/i }));
+    fireEvent.click(screen.getByRole('menuitem', { name: /^Delete$/i }));
 
     await waitFor(() => expect(restMock.sessionDelete).toHaveBeenCalledWith('sess-1', 'default'));
     expect(screen.queryByText('Trash me')).not.toBeInTheDocument();

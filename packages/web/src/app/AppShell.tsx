@@ -1,6 +1,6 @@
 import { Suspense, lazy, useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import type { Approval, Clarify, ConnectionState, RpcClient, RestClient, RpcEvent, Session, UpdateCheck } from '@hermes-pwa/core';
-import { connectionStateLabel, isPlaceholderSessionTitle, sessionSourceId, sessionSourceLabel, useActivityStore, useProfilesStore, useSessionsStore, useChatStore, useConnectionStore, useProjectsStore } from '@hermes-pwa/core';
+import { connectionStateLabel, isPlaceholderSessionTitle, sessionProfileKey, sessionSourceId, sessionSourceLabel, useActivityStore, useProfilesStore, useSessionsStore, useChatStore, useConnectionStore, useProjectsStore } from '@hermes-pwa/core';
 import { Home } from '../screens/Home';
 import { ConnectionBanner } from '../components/ConnectionBanner';
 import { Icon, type IconName } from '../components/Icon';
@@ -250,7 +250,7 @@ export function AppShell({ connectionState, rpc, rest, onRetry }: AppShellProps)
   const activeName = useProfilesStore((s) => s.activeName);
   const currentName = useProfilesStore((s) => s.currentName);
   const { profiles, load: loadProfiles } = useProfilesStore();
-  const { sessions, load } = useSessionsStore();
+  const { sessions, load, profileFilter } = useSessionsStore();
   const { sessionId, storedSessionId, chatTitle } = useChatStore();
   const { startNewSession, messages } = useChatStore();
   const addActivityItem = useActivityStore((s) => s.addItem);
@@ -594,7 +594,11 @@ export function AppShell({ connectionState, rpc, rest, onRetry }: AppShellProps)
     setUpdateDismissedVersion(version);
   }
 
-  const visibleSessions = useMemo(() => sessions.filter((s) => !s.archived), [sessions]);
+  const visibleSessions = useMemo(() => {
+    const unarchived = sessions.filter((s) => !s.archived);
+    if (profileFilter === 'all') return unarchived;
+    return unarchived.filter((s) => sessionProfileKey(s) === profileFilter);
+  }, [sessions, profileFilter]);
   const drawerSourceOptions = useMemo(() => buildSourceFilterOptions(visibleSessions), [visibleSessions]);
   const filteredDrawerSessions = useMemo(
     () =>
@@ -607,7 +611,7 @@ export function AppShell({ connectionState, rpc, rest, onRetry }: AppShellProps)
     () =>
       filteredDrawerSessions.slice(0, 7).map((s) => ({
         id: s.id,
-        title: `${sessionSourceLabel(sessionSourceKey(s)) ?? 'Unknown'} · ${s.title?.trim() || 'Untitled'}`,
+        title: `${sessionProfileKey(s)} · ${sessionSourceLabel(sessionSourceKey(s)) ?? 'Unknown'} · ${s.title?.trim() || 'Untitled'}`,
         msgs: s.messageCount ?? 0,
         dot: s.isActive || s.active ? '#15a06a' : '#9aa2b4',
         onClick: () => void handleDrawerSession(s),
@@ -652,7 +656,7 @@ export function AppShell({ connectionState, rpc, rest, onRetry }: AppShellProps)
         <LazyScreenErrorBoundary key={screen}>
           <Suspense fallback={<p className="hm-muted hm-loading">Loading…</p>}>
             {screen === 'chat'      && <Chat key={activeName ?? 'default'} rpc={rpc} rest={rest} onNavigate={(s) => navigate(s as Screen)} />}
-            {screen === 'sessions'  && <Sessions key={activeName ?? 'default'} rpc={rpc} rest={rest} onSessionOpen={() => navigate('chat')} />}
+            {screen === 'sessions'  && <Sessions rpc={rpc} rest={rest} onSessionOpen={() => navigate('chat')} />}
             {screen === 'approvals' && <Activity key={activeName ?? 'default'} rpc={rpc} />}
             {screen === 'kanban'    && <Projects key={activeName ?? 'default'} rest={rest} />}
             {screen === 'agents'    && <Agents key={activeName ?? 'default'} rpc={rpc} />}

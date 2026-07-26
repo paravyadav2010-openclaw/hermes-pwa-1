@@ -277,7 +277,8 @@ export interface RestClient {
   cronDeleteJob(jobId: string, profile?: string): Promise<{ ok: boolean }>;
   cronDeliveryTargets(): Promise<CronDeliveryTarget[]>;
 
-  profileSessions(): Promise<Session[]>;
+  /** Load sessions. Default `all` aggregates every profile (each row tagged `profile`). */
+  profileSessions(profile?: string): Promise<Session[]>;
   sessionMessages(sessionId: string, profile?: string): Promise<unknown>;
   sessionArtifacts(sessionId: string): Promise<Artifact[]>;
   sessionUpdate(sessionId: string, updates: { title?: string | null; archived?: boolean; profile?: string }): Promise<unknown>;
@@ -664,11 +665,11 @@ export function makeRestClient(http: Http): RestClient {
       return asArray<Record<string, unknown>>(raw.targets).map(toCronDeliveryTarget);
     },
 
-    async profileSessions(): Promise<Session[]> {
-      // Local + messaging + cron-run sessions. Source chips (Telegram/Discord/Cron/…)
-      // are built from whatever the API returns. Only curator noise stays out.
-      const profile = activeProfile || 'default';
-      const raw = await http<Record<string, unknown>>(profileSessionsPath(profile, PWA_EXCLUDED_SESSION_SOURCES));
+    async profileSessions(profile?: string): Promise<Session[]> {
+      // Aggregate all profiles by default so Sessions can filter client-side.
+      // Pass a concrete name to scope one profile. Only curator noise stays out.
+      const target = (profile && profile.trim()) || 'all';
+      const raw = await http<Record<string, unknown>>(profileSessionsPath(target, PWA_EXCLUDED_SESSION_SOURCES));
       return mergeSessionsByLineage([], sessionsFromResult(raw));
     },
 

@@ -1,14 +1,78 @@
 import ReactMarkdown from 'react-markdown';
 import remarkGfm from 'remark-gfm';
-import { memo, useCallback, useEffect, useState } from 'react';
+import { memo, useCallback, useEffect, useMemo, useState } from 'react';
 import type { Approval, Message, ToolCall } from '@hermes-pwa/core';
 import { ToolGroup } from './ToolGroup';
 import { TodoPanel } from './TodoPanel';
 import { ThinkingDisclosure } from './ThinkingDisclosure';
 import { Icon } from './Icon';
-import { MARKDOWN_COMPONENTS, areMessageBubblePropsEqual, type MessageBubbleProps } from './MessageBubble.helpers';
+import { MARKDOWN_COMPONENTS, ImageGalleryProvider, MessageImage, MessageVideo, areMessageBubblePropsEqual, type MessageBubbleProps } from './MessageBubble.helpers';
+
+/** Inline image for the grid (outside ReactMarkdown). */
+function MessageImageInline({ src, alt }: { src: string; alt?: string }) {
+  return <MessageImage src={src} alt={alt ?? ''} />;
+}
 
 const MARKDOWN_REMARK_PLUGINS = [remarkGfm];
+
+/**
+ * Convert image/video references in message text to markdown syntax
+ * so ReactMarkdown renders them via the gateway's /api/media endpoint.
+ * Video files proxied through /api/video for raw byte streaming.
+ */
+function preprocessMediaRefs(text: string): string {
+  // 1. MEDIA:/absolute/path/to/file → markdown via /api/media (images) or /api/video (videos)
+  let result = text.replace(
+    /MEDIA:(\/[^\s\n]+)/g,
+    (_match, filePath) => {
+      const ext = filePath.split('.').pop()?.toLowerCase() ?? '';
+      const isVideo = ['mp4', 'webm', 'mov', 'm4v', 'avi', 'mkv'].includes(ext);
+      return isVideo
+        ? `![](/api/video?path=${encodeURIComponent(filePath)})`
+        : `![](/api/media?path=${encodeURIComponent(filePath)})`;
+    },
+  );
+  // 2. @file: references (user uploads from Composer)
+  result = result.replace(
+    /@file:([^\s\n)]+\.(?:png|jpg|jpeg|gif|webp|svg|bmp|avif|mp4|webm|mov|m4v|avi|mkv)(?:\?[^\s\n)]*)?)/gi,
+    (_match, filePath) => {
+      const ext = filePath.split('.').pop()?.toLowerCase() ?? '';
+      const isVideo = ['mp4', 'webm', 'mov', 'm4v', 'avi', 'mkv'].includes(ext);
+      return isVideo
+        ? `![](/api/video?path=${encodeURIComponent(filePath)})`
+        : `![](/api/files/read?path=${encodeURIComponent(filePath)})`;
+    },
+  );
+  return result;
+}
+
+/** True if the URL points to a video file (checks the full URL including query params). */
+function isVideoUrl(url: string): boolean {
+  // Check for /api/video prefix (PWA proxy serving raw video bytes)
+  if (url.startsWith('/api/video')) return true;
+  // Or a known video extension in the URL
+  return /\.(mp4|webm|mov|m4v|avi|mkv)(?:[?#&]|$)/i.test(url);
+}
+
+/** Extract image/video URLs from preprocessed markdown text, split by type. */
+function extractMediaUrls(text: string): { images: string[]; videos: string[] } {
+  const allUrls: string[] = [];
+  const re = /!\[([^\]]*)\]\(([^)]+)\)/g;
+  let m: RegExpExecArray | null;
+  while ((m = re.exec(text)) !== null) allUrls.push(m[2]);
+  const images: string[] = [];
+  const videos: string[] = [];
+  for (const url of allUrls) {
+    if (isVideoUrl(url)) videos.push(url);
+    else images.push(url);
+  }
+  return { images, videos };
+}
+
+/** Remove markdown image syntax from text (for separate grid rendering). */
+function stripImages(text: string): string {
+  return text.replace(/!\[[^\]]*\]\([^)]+\)\s*/g, '').trim();
+}
 
 const APPROVAL_TOOL_NAMES = new Set(['terminal', 'execute_code']);
 const APPROVAL_INLINE_TIME_WINDOW_MS = 5 * 60_000;
@@ -153,9 +217,32 @@ function MessageBubbleView({ message, rpc, isLast, streaming, liveStatus, liveFa
   const isUser = message.role === 'user';
 
   if (isUser) {
+    const preprocessed = preprocessMediaRefs(message.text);
+    const { images: imageUrls, videos: videoUrls } = useMemo(() => extractMediaUrls(preprocessed), [preprocessed]);
+    const textOnly = useMemo(() => stripImages(preprocessed), [preprocessed]);
     return (
       <div className="hm-message hm-message--user">
-        <ReactMarkdown remarkPlugins={MARKDOWN_REMARK_PLUGINS} components={MARKDOWN_COMPONENTS}>{message.text}</ReactMarkdown>
+        {textOnly && <ReactMarkdown remarkPlugins={MARKDOWN_REMARK_PLUGINS} components={MARKDOWN_COMPONENTS}>{textOnly}</ReactMarkdown>}
+        {videoUrls.length > 0 && (
+          <div className="hm-video-grid">
+            {videoUrls.map((url, i) => (
+              <span key={i} className="hm-video-wrap">
+                <MessageVideo src={url} />
+              </span>
+            ))}
+          </div>
+        )}
+        {imageUrls.length > 0 && (
+          <ImageGalleryProvider>
+            <div className={`hm-image-grid${imageUrls.length === 1 ? ' hm-image-grid--single' : ''}`}>
+              {imageUrls.map((url, i) => (
+                <span key={i} className="hm-md-img-wrap">
+                  <MessageImageInline src={url} alt="" />
+                </span>
+              ))}
+            </div>
+          </ImageGalleryProvider>
+        )}
         <MessageMetaBar text={message.text} createdAt={message.createdAt} show={Boolean(message.text.trim())} />
       </div>
     );
@@ -230,12 +317,37 @@ function MessageBubbleView({ message, rpc, isLast, streaming, liveStatus, liveFa
         </div>
       )}
 
-      {message.text ? (
-        <div className="hm-message__text">
-          <ReactMarkdown remarkPlugins={MARKDOWN_REMARK_PLUGINS} components={MARKDOWN_COMPONENTS}>{message.text}</ReactMarkdown>
-          {showCaret && <span className="hm-message__caret" />}
-        </div>
-      ) : null}
+      {message.text ? (() => {
+        const preprocessed = preprocessMediaRefs(message.text);
+        const { images: imageUrls, videos: videoUrls } = extractMediaUrls(preprocessed);
+        const textOnly = stripImages(preprocessed);
+        return (
+          <div className="hm-message__text">
+            {textOnly && <ReactMarkdown remarkPlugins={MARKDOWN_REMARK_PLUGINS} components={MARKDOWN_COMPONENTS}>{textOnly}</ReactMarkdown>}
+            {videoUrls.length > 0 && (
+              <div className="hm-video-grid">
+                {videoUrls.map((url, i) => (
+                  <span key={i} className="hm-video-wrap">
+                    <MessageVideo src={url} />
+                  </span>
+                ))}
+              </div>
+            )}
+            {imageUrls.length > 0 && (
+              <ImageGalleryProvider>
+                <div className={`hm-image-grid${imageUrls.length === 1 ? ' hm-image-grid--single' : ''}`}>
+                  {imageUrls.map((url, i) => (
+                    <span key={i} className="hm-md-img-wrap">
+                      <MessageImageInline src={url} alt="" />
+                    </span>
+                  ))}
+                </div>
+              </ImageGalleryProvider>
+            )}
+            {showCaret && <span className="hm-message__caret" />}
+          </div>
+        );
+      })() : null}
 
       <MessageMetaBar
         text={message.text}

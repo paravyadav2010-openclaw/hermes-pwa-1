@@ -1,5 +1,6 @@
 import { useEffect, useMemo, useRef, useState } from 'react';
 import type { ModelOptions, ReasoningEffort, RpcClient, RestClient } from '@hermes-pwa/core';
+import { useProfilesStore } from '@hermes-pwa/core';
 import { Icon } from '../components/Icon';
 
 const REASONING_EFFORTS: ReasoningEffort[] = ['none', 'minimal', 'low', 'medium', 'high', 'xhigh'];
@@ -65,6 +66,8 @@ interface ProfileModelBarProps {
   reasoningEffort?: ReasoningEffort;
   modelLabel: string;
   providerLabel: string;
+  /** Called after profile/model/effort change so the session can resume with new settings. */
+  onResumeSession?: () => void;
 }
 
 // Rough token estimate from message text
@@ -88,7 +91,7 @@ function estimateTokens(messages: { text: string; thinking?: string; toolCalls?:
 
 export function ProfileModelBar({
   profiles, activeName, messages, rpc, sessionId, rest, onModelChange,
-  onEffortChange, reasoningEffort, modelLabel, providerLabel,
+  onEffortChange, reasoningEffort, modelLabel, providerLabel, onResumeSession,
 }: ProfileModelBarProps) {
   const [dropdown, setDropdown] = useState<Dropdown>(null);
   const [modelOptions, setModelOptions] = useState<ModelOptions | null>(null);
@@ -182,7 +185,16 @@ export function ProfileModelBar({
   const isReal = rpcContext !== null;
 
   async function switchProfile(name: string) {
-    try { await rest.profileActivate(name); setDropdown(null); } catch { /* ignore */ }
+    try {
+      await rest.profileActivate(name);
+      // Update the profiles store so activeName (and the label) react immediately.
+      const store = useProfilesStore.getState();
+      const profiles = store.profiles.map((p) => ({ ...p, isActive: p.name === name }));
+      useProfilesStore.setState({ profiles, activeName: name });
+      setDropdown(null);
+      // Resume session so gateway picks up the new profile's model/settings.
+      onResumeSession?.();
+    } catch { /* ignore */ }
   }
 
   function handleProviderSelect(provider: string) {
@@ -194,12 +206,16 @@ export function ProfileModelBar({
     onModelChange(provider, model);
     setDropdown(null);
     setSelectedProvider(null);
+    // Resume session so gateway picks up the new model.
+    onResumeSession?.();
   }
 
   function handleEffortSelect(effort: ReasoningEffort) {
     setLocalEffort(effort);
     onEffortChange?.(effort);
     setDropdown(null);
+    // Resume session so gateway picks up the new effort.
+    onResumeSession?.();
   }
 
   return (

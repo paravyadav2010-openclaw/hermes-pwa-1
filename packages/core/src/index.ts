@@ -11,7 +11,14 @@ export type { UpdateCheck, UpdateInstruction } from './domain/update';
 export { makeRpcClient, makeRpcEvents, type RpcClient, type RpcEvents, type RpcEvent } from './transport/jsonrpc';
 export { makeWsConnection, type WsConnection } from './transport/ws';
 export { useConnectionStore, type ConnectionState, type ConnectionStore } from './stores/connection';
-export { useSessionsStore, type SessionsStore } from './stores/sessions';
+export {
+  useSessionsStore,
+  sessionProfileKey,
+  readSessionsProfileFilter,
+  SESSIONS_PROFILE_FILTER_STORAGE_KEY,
+  type SessionsStore,
+  type SessionsProfileFilter,
+} from './stores/sessions';
 export { useChatStore, type ChatStore } from './stores/chat';
 export { useActivityStore, type ActivityStore } from './stores/activity';
 export { useCronStore, type CronStore } from './stores/cron';

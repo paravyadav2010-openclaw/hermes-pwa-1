@@ -1,4 +1,20 @@
-import { createElement, useState, type AnchorHTMLAttributes, type HTMLAttributes, type ReactNode, type TableHTMLAttributes, type TdHTMLAttributes, type ThHTMLAttributes } from 'react';
+import {
+  createContext,
+  createElement,
+  useCallback,
+  useContext,
+  useEffect,
+  useMemo,
+  useRef,
+  useState,
+  type AnchorHTMLAttributes,
+  type HTMLAttributes,
+  type ImgHTMLAttributes,
+  type ReactNode,
+  type TableHTMLAttributes,
+  type TdHTMLAttributes,
+  type ThHTMLAttributes,
+} from 'react';
 import type { Approval, Message, RpcClient } from '@hermes-pwa/core';
 
 export interface MessageBubbleProps {
@@ -24,6 +40,197 @@ export function areMessageBubblePropsEqual(prev: MessageBubbleProps, next: Messa
     prev.activeSessionIds === next.activeSessionIds
   );
 }
+
+/* ── Image gallery context ─────────────────────────────────────────── */
+
+interface GalleryImage {
+  key: string;
+  resolvedSrc: string;
+  alt: string;
+}
+
+interface ImageGalleryCtx {
+  register(key: string, resolvedSrc: string, alt: string): void;
+  unregister(key: string): void;
+  openAt(key: string): void;
+}
+
+const ImageGalleryContext = createContext<ImageGalleryCtx | null>(null);
+
+/** Wraps the markdown tree so all MessageImage children share a gallery. */
+export function ImageGalleryProvider({ children }: { children: ReactNode }) {
+  const imagesRef = useRef<GalleryImage[]>([]);
+  const keysRef = useRef(new Set<string>());
+  const [lightbox, setLightbox] = useState<{ images: GalleryImage[]; index: number } | null>(null);
+
+  const register = useCallback((key: string, resolvedSrc: string, alt: string) => {
+    if (keysRef.current.has(key)) {
+      // Update resolved src if it changed
+      imagesRef.current = imagesRef.current.map((img) =>
+        img.key === key ? { ...img, resolvedSrc, alt } : img,
+      );
+      return;
+    }
+    keysRef.current.add(key);
+    imagesRef.current = [...imagesRef.current, { key, resolvedSrc, alt }];
+  }, []);
+
+  const unregister = useCallback((key: string) => {
+    keysRef.current.delete(key);
+    imagesRef.current = imagesRef.current.filter((img) => img.key !== key);
+  }, []);
+
+  const openAt = useCallback((key: string) => {
+    const idx = imagesRef.current.findIndex((img) => img.key === key);
+    if (idx >= 0) setLightbox({ images: [...imagesRef.current], index: idx });
+  }, []);
+
+  const ctx = useMemo<ImageGalleryCtx>(() => ({ register, unregister, openAt }), [register, unregister, openAt]);
+
+  return createElement(ImageGalleryContext.Provider, { value: ctx },
+    children,
+    lightbox && createElement(Lightbox, {
+      images: lightbox.images,
+      startIndex: lightbox.index,
+      onClose: () => setLightbox(null),
+    }),
+  );
+}
+
+/* ── Lightbox with swipe ───────────────────────────────────────────── */
+
+function Lightbox({ images, startIndex, onClose }: { images: GalleryImage[]; startIndex: number; onClose: () => void }) {
+  const [index, setIndex] = useState(startIndex);
+  const touchStart = useRef<{ x: number; y: number } | null>(null);
+  const containerRef = useRef<HTMLDivElement>(null);
+
+  const prev = useCallback(() => setIndex((i) => Math.max(0, i - 1)), []);
+  const next = useCallback(() => setIndex((i) => Math.min(images.length - 1, i + 1)), [images.length]);
+
+  // Block tab-swipe gesture while lightbox is open
+  useEffect(() => {
+    document.body.dataset.lightboxOpen = 'true';
+    return () => { delete document.body.dataset.lightboxOpen; };
+  }, []);
+
+  // Keyboard nav
+  useEffect(() => {
+    function onKey(e: KeyboardEvent) {
+      if (e.key === 'Escape') onClose();
+      if (e.key === 'ArrowLeft') prev();
+      if (e.key === 'ArrowRight') next();
+    }
+    window.addEventListener('keydown', onKey);
+    return () => window.removeEventListener('keydown', onKey);
+  }, [onClose, prev, next]);
+
+  // Track drag offset for sliding feel
+  const [dragOffset, setDragOffset] = useState(0);
+  const dragStart = useRef<{ x: number; time: number } | null>(null);
+
+  // Swipe handling with sliding animation
+  function onTouchStart(e: React.TouchEvent) {
+    dragStart.current = { x: e.touches[0].clientX, time: Date.now() };
+    setDragOffset(0);
+  }
+  function onTouchMove(e: React.TouchEvent) {
+    if (!dragStart.current) return;
+    let dx = e.touches[0].clientX - dragStart.current.x;
+    // Rubber-band at edges: dampen drag when past first/last
+    const atEdge = (dx > 0 && index === 0) || (dx < 0 && index === images.length - 1);
+    if (atEdge) dx = dx * 0.3;
+    setDragOffset(dx);
+  }
+  function onTouchEnd(e: React.TouchEvent) {
+    if (!dragStart.current) return;
+    const dx = e.changedTouches[0].clientX - dragStart.current.x;
+    const elapsed = Date.now() - dragStart.current.time;
+    const velocity = Math.abs(dx) / elapsed;
+    dragStart.current = null;
+    setDragOffset(0);
+    // Fast flick or significant drag
+    if ((Math.abs(dx) > 60 || velocity > 0.3) && Math.abs(dx) > 20) {
+      if (dx < 0) next();
+      else prev();
+    }
+  }
+
+  function onBackdropClick(e: React.MouseEvent) {
+    if (e.target === containerRef.current) onClose();
+  }
+
+  if (!images[index]) return null;
+
+  // Render all images as a sliding strip
+  return createElement('div', {
+    ref: containerRef,
+    className: 'hm-md-img-lightbox',
+    onClick: onBackdropClick,
+    onTouchStart,
+    onTouchMove,
+    onTouchEnd,
+  },
+    // Counter
+    images.length > 1 && createElement('span', { className: 'hm-md-img-lightbox__counter' },
+      `${index + 1} / ${images.length}`,
+    ),
+    // Prev button
+    index > 0 && createElement('button', {
+      className: 'hm-md-img-lightbox__nav hm-md-img-lightbox__nav--prev',
+      onClick: (e: React.MouseEvent) => { e.stopPropagation(); prev(); },
+      'aria-label': 'Previous image',
+    },
+      createElement('svg', { width: 24, height: 24, viewBox: '0 0 24 24', fill: 'none', stroke: 'currentColor', strokeWidth: 2, strokeLinecap: 'round', strokeLinejoin: 'round' },
+        createElement('path', { d: 'M15 18l-6-6 6-6' }),
+      ),
+    ),
+    // Sliding strip
+    createElement('div', {
+      className: 'hm-md-img-lightbox__track',
+      style: {
+        transform: `translateX(calc(${-index * 100}% + ${dragOffset}px))`,
+        transition: dragOffset !== 0 ? 'none' : 'transform 0.35s cubic-bezier(0.25, 1, 0.5, 1)',
+      },
+    },
+      ...images.map((img, i) =>
+        createElement('div', {
+          key: img.key,
+          className: 'hm-md-img-lightbox__slide',
+        },
+          createElement('img', {
+            src: img.resolvedSrc,
+            alt: img.alt,
+            className: 'hm-md-img-lightbox__img',
+            onClick: (e: React.MouseEvent) => e.stopPropagation(),
+          }),
+        ),
+      ),
+    ),
+    // Next button
+    index < images.length - 1 && createElement('button', {
+      className: 'hm-md-img-lightbox__nav hm-md-img-lightbox__nav--next',
+      onClick: (e: React.MouseEvent) => { e.stopPropagation(); next(); },
+      'aria-label': 'Next image',
+    },
+      createElement('svg', { width: 24, height: 24, viewBox: '0 0 24 24', fill: 'none', stroke: 'currentColor', strokeWidth: 2, strokeLinecap: 'round', strokeLinejoin: 'round' },
+        createElement('path', { d: 'M9 18l6-6-6-6' }),
+      ),
+    ),
+    // Close button
+    createElement('button', {
+      className: 'hm-md-img-lightbox__close',
+      onClick: onClose,
+      'aria-label': 'Close',
+    },
+      createElement('svg', { width: 20, height: 20, viewBox: '0 0 24 24', fill: 'none', stroke: 'currentColor', strokeWidth: 2.5, strokeLinecap: 'round', strokeLinejoin: 'round' },
+        createElement('path', { d: 'M18 6L6 18' }),
+        createElement('path', { d: 'M6 6l12 12' }),
+      ),
+    ),
+  );
+}
+
+/* ── Code block ────────────────────────────────────────────────────── */
 
 function CodeBlock({ language, children }: { language?: string; children?: ReactNode }) {
   const [copied, setCopied] = useState(false);
@@ -51,6 +258,112 @@ function CodeBlock({ language, children }: { language?: string; children?: React
     ),
   );
 }
+
+/* ── MessageImage with gallery integration ─────────────────────────── */
+
+export function MessageImage({ src, alt, ...props }: ImgHTMLAttributes<HTMLImageElement>) {
+  const [resolvedSrc, setResolvedSrc] = useState(src);
+  const gallery = useContext(ImageGalleryContext);
+  const keyRef = useRef(`img-${src}-${Math.random().toString(36).slice(2, 8)}`);
+
+  // Resolve /api/media and /api/files/read JSON responses to data URLs
+  useEffect(() => {
+    if (!src) return;
+    if (src.startsWith('data:')) return;
+    if (src.startsWith('/api/media') || src.startsWith('/api/files/read')) {
+      let cancelled = false;
+      fetch(src, { credentials: 'same-origin' })
+        .then((r) => r.json())
+        .then((data) => {
+          if (cancelled) return;
+          const url = data.data_url || data.dataUrl;
+          if (url) setResolvedSrc(url);
+        })
+        .catch(() => {});
+      return () => { cancelled = true; };
+    }
+  }, [src]);
+
+  // Register with gallery when resolved
+  useEffect(() => {
+    if (!gallery || !resolvedSrc) return;
+    gallery.register(keyRef.current, resolvedSrc, alt || '');
+    return () => gallery.unregister(keyRef.current);
+  }, [gallery, resolvedSrc, alt]);
+
+  const handleClick = useCallback(() => {
+    gallery?.openAt(keyRef.current);
+  }, [gallery]);
+
+  return createElement('span', { className: 'hm-md-img-wrap' },
+    createElement('img', {
+      ...props,
+      src: resolvedSrc,
+      alt: alt || '',
+      className: 'hm-md-img',
+      loading: 'lazy',
+      onClick: handleClick,
+      style: { cursor: 'zoom-in' },
+    }),
+  );
+}
+
+/* ── MessageVideo inline player ─────────────────────────────────────── */
+
+export function MessageVideo({ src }: { src?: string }) {
+  const [resolvedSrc, setResolvedSrc] = useState<string | undefined>(undefined);
+  const [loading, setLoading] = useState(true);
+
+  // For /api/video URLs, use directly (raw bytes served by PWA proxy).
+  // For /api/media and /api/files/read, fetch JSON and extract data_url.
+  useEffect(() => {
+    if (!src) return;
+    if (src.startsWith('data:')) { setResolvedSrc(src); setLoading(false); return; }
+    if (src.startsWith('/api/video')) {
+      // Raw byte endpoint — use directly as video src
+      setResolvedSrc(src);
+      setLoading(false);
+      return;
+    }
+    if (src.startsWith('/api/media') || src.startsWith('/api/files/read')) {
+      let cancelled = false;
+      setLoading(true);
+      fetch(src, { credentials: 'same-origin' })
+        .then((r) => r.json())
+        .then((data) => {
+          if (cancelled) return;
+          const url = data.data_url || data.dataUrl;
+          if (url) setResolvedSrc(url);
+        })
+        .catch(() => {})
+        .finally(() => { if (!cancelled) setLoading(false); });
+      return () => { cancelled = true; };
+    } else {
+      setResolvedSrc(src);
+      setLoading(false);
+    }
+  }, [src]);
+
+  if (loading) {
+    return createElement('div', { className: 'hm-video-loading' }, 'Loading video…');
+  }
+
+  if (!resolvedSrc) {
+    return createElement('div', { className: 'hm-video-error' }, 'Video could not be loaded');
+  }
+
+  return createElement('span', { className: 'hm-video-wrap' },
+    createElement('video', {
+      src: resolvedSrc,
+      className: 'hm-video-inline',
+      controls: true,
+      preload: 'metadata',
+      playsInline: true,
+    }),
+  );
+}
+
+/* ── Markdown component overrides ──────────────────────────────────── */
 
 export const MARKDOWN_COMPONENTS = {
   a: ({ href, children, ...props }: AnchorHTMLAttributes<HTMLAnchorElement>) =>
@@ -87,4 +400,10 @@ export const MARKDOWN_COMPONENTS = {
     createElement('th', { ...props, className: 'hm-md-table__th' }, children),
   td: ({ children, ...props }: TdHTMLAttributes<HTMLTableCellElement>) =>
     createElement('td', { ...props, className: 'hm-md-table__td' }, children),
+  img: ({ src, alt, ...props }: ImgHTMLAttributes<HTMLImageElement>) => {
+    if (src && (src.startsWith('/api/video') || /\.(mp4|webm|mov|m4v|avi|mkv)(?:[?#&]|$)/i.test(src))) {
+      return createElement(MessageVideo, { src });
+    }
+    return createElement(MessageImage, { ...props, src, alt });
+  },
 };

@@ -10,22 +10,56 @@ import type { RestClient } from '../transport/rest';
 import { LONG_RPC_TIMEOUT_MS } from '../transport/timeouts';
 
 const PINNED_SESSIONS_STORAGE_KEY = 'hermes-pwa.pinnedSessions.v1';
+export const SESSIONS_PROFILE_FILTER_STORAGE_KEY = 'hermes-pwa.sessionsProfileFilter.v1';
+
+export type SessionsProfileFilter = 'all' | string;
+
+export function sessionProfileKey(session: Pick<Session, 'profile'>): string {
+  const name = session.profile?.trim();
+  return name || 'default';
+}
+
+export function readSessionsProfileFilter(fallback?: string | undefined): SessionsProfileFilter {
+  if (typeof window !== 'undefined') {
+    try {
+      const raw = window.localStorage.getItem(SESSIONS_PROFILE_FILTER_STORAGE_KEY)?.trim();
+      if (raw) return raw;
+    } catch {
+      // ignore
+    }
+  }
+  const fb = fallback?.trim();
+  return fb || 'all';
+}
+
+function writeSessionsProfileFilter(filter: SessionsProfileFilter): void {
+  if (typeof window === 'undefined') return;
+  try {
+    window.localStorage.setItem(SESSIONS_PROFILE_FILTER_STORAGE_KEY, filter);
+  } catch {
+    // Best-effort preference only.
+  }
+}
 
 export interface SessionsStore {
   sessions: Session[];
   loading: boolean;
   error: string | undefined;
   pinnedIds: string[];
+  /** View filter for Sessions list + drawer. Does not activate gateway profile. */
+  profileFilter: SessionsProfileFilter;
 
   load(rest: RestClient): Promise<void>;
   create(rpc: RpcClient, params?: { profile?: string; cwd?: string }): Promise<string>;
   resume(rpc: RpcClient, sessionId: string, profile?: string): Promise<Record<string, unknown> | undefined>;
   archive(rest: RestClient, session: Session, archived: boolean): Promise<void>;
   delete(rest: RestClient, session: Session): Promise<void>;
+  rename(rest: RestClient, session: Session, title: string): Promise<void>;
   /** Update title for a live or durable session id (header + drawer). */
   applyTitle(sessionId: string | undefined, title: string, options?: { force?: boolean }): void;
   togglePin(session: Session): void;
   setPinnedIds(ids: string[]): void;
+  setProfileFilter(filter: SessionsProfileFilter): void;
 }
 
 function readPinnedIds(): string[] {
@@ -61,17 +95,20 @@ function sessionMatchesId(session: Session, sessionId: string): boolean {
 }
 
 const initialPinnedIds = readPinnedIds();
+const initialProfileFilter = readSessionsProfileFilter();
 
 export const useSessionsStore = create<SessionsStore>((set, get) => ({
   sessions: [],
   loading: false,
   error: undefined,
   pinnedIds: initialPinnedIds,
+  profileFilter: initialProfileFilter,
 
   async load(rest) {
     set({ loading: true, error: undefined });
     try {
-      const incoming = await rest.profileSessions();
+      // Always pull all profiles; UI profileFilter scopes the list.
+      const incoming = await rest.profileSessions('all');
       // Keep meaningful local titles when the API still returns serial stubs.
       set((state) => ({
         sessions: mergeSessionsByLineage(state.sessions, incoming ?? []),
@@ -134,6 +171,22 @@ export const useSessionsStore = create<SessionsStore>((set, get) => ({
     }
   },
 
+  async rename(rest, session, title) {
+    const nextTitle = title.replace(/\s+/g, ' ').trim();
+    if (!nextTitle) throw new Error('Title cannot be empty.');
+    set({ error: undefined });
+    try {
+      await rest.sessionUpdate(session.id, {
+        title: nextTitle,
+        ...(session.profile ? { profile: session.profile } : {}),
+      });
+      get().applyTitle(session.id, nextTitle, { force: true });
+    } catch (err) {
+      set({ error: err instanceof Error ? err.message : 'Failed to rename session.' });
+      throw err;
+    }
+  },
+
   applyTitle(sessionId, title, options) {
     const nextTitle = title.replace(/\s+/g, ' ').trim();
     if (!sessionId || !nextTitle) return;
@@ -187,5 +240,11 @@ export const useSessionsStore = create<SessionsStore>((set, get) => ({
     const pinnedIds = [...new Set(ids.filter(Boolean))];
     set({ pinnedIds });
     writePinnedIds(pinnedIds);
+  },
+
+  setProfileFilter(filter) {
+    const next = (filter?.trim() || 'all') as SessionsProfileFilter;
+    set({ profileFilter: next });
+    writeSessionsProfileFilter(next);
   },
 }));

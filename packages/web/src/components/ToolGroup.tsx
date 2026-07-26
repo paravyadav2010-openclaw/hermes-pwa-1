@@ -66,19 +66,10 @@ export function ToolGroup({ tools, rpc, streaming }: ToolGroupProps) {
   const hasRunning = runningCount > 0;
   const stateLabel = hasRunning ? 'running' : 'done';
 
-  // Open while tools are running / need attention; collapse when fully done.
-  const [open, setOpen] = useState(hasRunning);
+  // Always start collapsed; user opens manually.
+  const [open, setOpen] = useState(false);
 
-  useEffect(() => {
-    if (hasRunning) {
-      setOpen(true);
-      return;
-    }
-    // Auto-collapse when all tools finished (and not mid-stream churn).
-    if (!streaming) {
-      setOpen(false);
-    }
-  }, [streaming, hasRunning]);
+  // No auto-open — user taps to expand.
 
   const preview = useMemo(() => {
     if (tools.length === 0) return '';
