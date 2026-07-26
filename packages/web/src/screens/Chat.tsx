@@ -771,9 +771,19 @@ export function Chat({ rpc, rest, onNavigate }: ChatProps) {
         utterance.onend = finish;
         utterance.onerror = finish;
 
-        // iOS workaround: pause+resume to ensure audio plays
-        window.speechSynthesis.pause();
-        window.speechSynthesis.resume();
+        // iOS: unlock audio context with Web Audio before speaking
+        try {
+          const ctx = new (window.AudioContext || (window as any).webkitAudioContext)();
+          const osc = ctx.createOscillator();
+          const gain = ctx.createGain();
+          gain.gain.value = 0.001;
+          osc.connect(gain);
+          gain.connect(ctx.destination);
+          osc.start();
+          osc.stop(ctx.currentTime + 0.01);
+          setTimeout(() => ctx.close(), 50);
+        } catch {}
+
         window.speechSynthesis.speak(utterance);
 
         // iOS safety: onend sometimes never fires

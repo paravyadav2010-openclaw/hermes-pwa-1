@@ -55,6 +55,7 @@ export function useVoiceRecorder({
   const startedAtRef = useRef(0);
   const intervalRef = useRef<number | null>(null);
   const timeoutRef = useRef<number | null>(null);
+  const recognitionRef = useRef<any>(null);
 
   const clearTimers = () => {
     if (intervalRef.current) {
@@ -170,6 +171,7 @@ export function useVoiceRecorder({
 
     try {
       recognition.start();
+      recognitionRef.current = recognition;
       return true;
     } catch {
       clearTimeout(timeout);
@@ -181,6 +183,16 @@ export function useVoiceRecorder({
   const dictate = () => {
     if (recording) {
       void stop();
+      return;
+    }
+    // If currently dictating via speech, tap again to cancel
+    if (status === 'transcribing') {
+      if (recognitionRef.current) {
+        try { recognitionRef.current.abort(); } catch {}
+        recognitionRef.current = null;
+      }
+      setStatus('idle');
+      setInterimText('');
       return;
     }
     if (status !== 'idle') return;
