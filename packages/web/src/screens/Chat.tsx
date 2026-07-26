@@ -41,8 +41,6 @@ const CONTROL_CHAR_PATTERN = /[\u0000-\u001F\u007F]+/gu;
 const NON_CHAT_STATUS_KINDS = new Set(['lifecycle', 'compress', 'compressing', 'compression']);
 const NON_CHAT_STATUS_TEXT = /\b(compacting context|summarizing earlier conversation|compression summary|preflight compression)\b/i;
 const CHAT_HISTORY_REFRESH_INTERVAL_MS = 5_000;
-const SILENT_WAV_DATA_URL =
-  'data:audio/wav;base64,UklGRigAAABXQVZFZm10IBAAAAABAAEARKwAAIhYAQACABAAZGF0YQQAAAAAAA==';
 
 function normalizeBusyInputMode(value: unknown): BusyInputMode {
   return value === 'queue' || value === 'interrupt' || value === 'steer' ? value : 'queue';
@@ -126,7 +124,6 @@ export function Chat({ rpc, rest, onNavigate }: ChatProps) {
   const initialRestoreDoneRef = useRef(false);
   const refreshInFlightRef = useRef(false);
   const queuedPromptsRef = useRef<string[]>([]);
-  const voiceAudioRef = useRef<HTMLAudioElement | null>(null);
   const voiceAudioSequenceRef = useRef(0);
   const [liveStatus, setLiveStatus] = useState<LiveStatus>({ text: '' });
   const [composerLayoutVersion, setComposerLayoutVersion] = useState(0);
@@ -665,81 +662,94 @@ export function Chat({ rpc, rest, onNavigate }: ChatProps) {
   );
 
   const handleTranscribeAudio = useCallback(
-    async (audio: Blob) => {
-      const dataUrl = await new Promise<string>((resolve, reject) => {
-        const reader = new FileReader();
-        reader.onloadend = () => resolve(String(reader.result));
-        reader.onerror = reject;
-        reader.readAsDataURL(audio);
+    async (_audio: Blob) => {
+      // Web Speech API captures its own audio — the blob from MediaRecorder is ignored.
+      const Ctor = (window as any).SpeechRecognition || (window as any).webkitSpeechRecognition;
+      if (!Ctor) return '';
+
+      return new Promise<string>((resolve) => {
+        const recognition = new Ctor();
+        recognition.lang = 'en-US';
+        recognition.interimResults = false;
+        recognition.continuous = false;
+        recognition.maxAlternatives = 1;
+
+        let settled = false;
+        const finish = (text: string) => {
+          if (settled) return;
+          settled = true;
+          clearTimeout(timeout);
+          try { recognition.abort(); } catch { /* already ended */ }
+          resolve(text);
+        };
+
+        const timeout = setTimeout(() => finish(''), 15000);
+
+        recognition.onresult = (event: any) => {
+          const transcript = event.results?.[0]?.[0]?.transcript ?? '';
+          finish(transcript.trim());
+        };
+
+        recognition.onerror = () => finish('');
+
+        recognition.onend = () => {
+          if (!settled) finish('');
+        };
+
+        try {
+          recognition.start();
+        } catch {
+          finish('');
+        }
       });
-      return rest.audioTranscribe(dataUrl, audio.type);
     },
-    [rest],
+    [],
   );
 
   const stopVoiceAudio = useCallback(() => {
     voiceAudioSequenceRef.current += 1;
-    const audio = voiceAudioRef.current;
-    if (!audio) return;
-    audio.pause();
-    audio.removeAttribute('src');
-    audio.load();
+    window.speechSynthesis?.cancel();
   }, []);
 
   const primeVoiceAudio = useCallback(() => {
-    if (typeof Audio === 'undefined') return;
-    const audio = voiceAudioRef.current ?? new Audio();
-    audio.setAttribute('playsinline', '');
-    voiceAudioRef.current = audio;
-    if (!audio.src) audio.src = SILENT_WAV_DATA_URL;
-    void audio
-      .play()
-      .then(() => {
-        audio.pause();
-        audio.currentTime = 0;
-      })
-      .catch(() => {
-        // Best-effort iOS unlock. Real playback still reports an error later if blocked.
-      });
+    // Prime speechSynthesis with a silent utterance to unlock audio on iOS.
+    if (!window.speechSynthesis) return;
+    const utterance = new SpeechSynthesisUtterance('');
+    utterance.volume = 0;
+    window.speechSynthesis.speak(utterance);
   }, []);
 
   const speakVoiceText = useCallback(
     async (text: string) => {
       const speakable = text.trim();
-      if (!speakable) return;
+      if (!speakable || !window.speechSynthesis) return;
       const ownSequence = voiceAudioSequenceRef.current;
-      const response = await rest.audioSpeak(speakable);
-      if (ownSequence !== voiceAudioSequenceRef.current) return;
-      const audio = voiceAudioRef.current ?? new Audio();
-      audio.setAttribute('playsinline', '');
-      voiceAudioRef.current = audio;
-      audio.src = response.dataUrl;
-      await new Promise<void>((resolve, reject) => {
-        const cleanup = () => {
-          audio.removeEventListener('ended', onEnded);
-          audio.removeEventListener('error', onError);
-        };
-        const onEnded = () => {
-          cleanup();
+
+      await new Promise<void>((resolve) => {
+        if (ownSequence !== voiceAudioSequenceRef.current) {
+          resolve();
+          return;
+        }
+
+        const utterance = new SpeechSynthesisUtterance(speakable);
+        utterance.lang = 'en-US';
+        utterance.rate = 1.0;
+        utterance.volume = 1;
+
+        let settled = false;
+        const finish = () => {
+          if (settled) return;
+          settled = true;
           resolve();
         };
-        const onError = () => {
-          cleanup();
-          reject(new Error('Voice playback failed.'));
-        };
-        audio.addEventListener('ended', onEnded, { once: true });
-        audio.addEventListener('error', onError, { once: true });
-        void audio.play().catch((error: unknown) => {
-          cleanup();
-          reject(error instanceof Error ? error : new Error('Voice playback was blocked.'));
-        });
+
+        utterance.onend = finish;
+        utterance.onerror = finish;
+
+        window.speechSynthesis.speak(utterance);
       });
-      if (ownSequence === voiceAudioSequenceRef.current) {
-        audio.removeAttribute('src');
-        audio.load();
-      }
     },
-    [rest],
+    [],
   );
 
   useEffect(() => () => stopVoiceAudio(), [stopVoiceAudio]);
