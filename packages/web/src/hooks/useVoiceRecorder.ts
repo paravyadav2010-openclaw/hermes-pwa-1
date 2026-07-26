@@ -134,12 +134,12 @@ export function useVoiceRecorder({
     recognition.maxAlternatives = 1;
 
     const finish = (text: string) => {
+      // For speech dictation, the text flows into the composer via interimText.
+      // Don't call onTranscript here — the Composer streams interimText into
+      // the textarea directly, so the final text is already there.
+      setInterimText(text || '');  // ensure final text is visible
       setStatus('idle');
-      setInterimText('');
       try { recognition.abort(); } catch { /* already done */ }
-      if (text && onTranscript) {
-        onTranscript(text);
-      }
       onFocusInput?.();
     };
 

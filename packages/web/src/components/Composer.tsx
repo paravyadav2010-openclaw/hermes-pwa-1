@@ -228,9 +228,27 @@ export function Composer({
     }
   }, [onLayoutChange]);
 
+  const dictationBaseRef = useRef('');
+
   useEffect(() => {
     resize();
   }, [text, resize]);
+
+  // When dictation starts, save current text as base
+  useEffect(() => {
+    if (voiceRecorder.status === 'transcribing') {
+      dictationBaseRef.current = text;
+    }
+  }, [voiceRecorder.status]);
+
+  // Stream interim dictation text directly into the composer
+  useEffect(() => {
+    if (voiceRecorder.status === 'transcribing' && voiceRecorder.interimText) {
+      const base = dictationBaseRef.current;
+      const sep = base && !base.endsWith(' ') ? ' ' : '';
+      setText(base + sep + voiceRecorder.interimText);
+    }
+  }, [voiceRecorder.interimText, voiceRecorder.status]);
 
   useEffect(() => {
     if (!slashPaletteOpen || !slashCommandsRpc) {
