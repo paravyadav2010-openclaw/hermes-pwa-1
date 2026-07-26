@@ -15,6 +15,17 @@ export interface VoiceConversationOptions {
   onPrimeAudio?: (() => void) | undefined;
 }
 
+declare global {
+  interface Window {
+    SpeechRecognition?: new () => SpeechRecognition;
+    webkitSpeechRecognition?: new () => SpeechRecognition;
+  }
+}
+
+function hasSpeechRecognition(): boolean {
+  return !!(window.SpeechRecognition || (window as any).webkitSpeechRecognition);
+}
+
 export function useVoiceConversation({
   enabled,
   busy,
@@ -36,22 +47,98 @@ export function useVoiceConversation({
   const messagesRef = useRef(messages);
   const pendingTurnRef = useRef<{ assistantIdsBefore: Set<string> } | null>(null);
   const spokenRef = useRef(false);
+  const recognitionRef = useRef<any>(null);
+  const useSpeechRef = useRef(hasSpeechRecognition());
 
-  useEffect(() => {
-    enabledRef.current = enabled;
-  }, [enabled]);
-  useEffect(() => {
-    mutedRef.current = muted;
-  }, [muted]);
-  useEffect(() => {
-    busyRef.current = busy;
-  }, [busy]);
-  useEffect(() => {
-    statusRef.current = status;
-  }, [status]);
-  useEffect(() => {
-    messagesRef.current = messages;
-  }, [messages]);
+  useEffect(() => { enabledRef.current = enabled; }, [enabled]);
+  useEffect(() => { mutedRef.current = muted; }, [muted]);
+  useEffect(() => { busyRef.current = busy; }, [busy]);
+  useEffect(() => { statusRef.current = status; }, [status]);
+  useEffect(() => { messagesRef.current = messages; }, [messages]);
+  useEffect(() => { useSpeechRef.current = hasSpeechRecognition(); }, []);
+
+  // ===== Speech Recognition mode (preferred on HTTPS/iOS) =====
+
+  const submitTranscript = useCallback((transcript: string) => {
+    if (!transcript) return;
+    pendingTurnRef.current = {
+      assistantIdsBefore: new Set(
+        messagesRef.current.filter((m) => m.role === 'assistant').map((m) => m.id),
+      ),
+    };
+    onSubmit(transcript);
+    setStatus('thinking');
+  }, [onSubmit]);
+
+  const stopSpeechRecognition = useCallback(() => {
+    if (recognitionRef.current) {
+      try { recognitionRef.current.abort(); } catch {}
+      recognitionRef.current = null;
+    }
+  }, []);
+
+  const startSpeechListening = useCallback(() => {
+    if (!enabledRef.current || mutedRef.current || busyRef.current) return;
+    if (!useSpeechRef.current) return;
+
+    stopSpeechRecognition();
+
+    const Ctor = (window as any).SpeechRecognition || (window as any).webkitSpeechRecognition;
+    if (!Ctor) return;
+
+    const recognition = new Ctor();
+    recognition.lang = 'en-US';
+    recognition.interimResults = true;
+    recognition.continuous = true;
+    recognition.maxAlternatives = 1;
+
+    let silenceTimer: ReturnType<typeof setTimeout> | null = null;
+    let lastInterim = '';
+
+    recognition.onresult = (event: any) => {
+      const result = event.results[event.results.length - 1];
+      const transcript = (result[0]?.transcript ?? '').trim();
+      lastInterim = transcript;
+
+      if (silenceTimer) clearTimeout(silenceTimer);
+
+      if (result.isFinal) {
+        // Got final result — submit and pause recognition
+        stopSpeechRecognition();
+        submitTranscript(transcript);
+      } else {
+        // Still speaking — reset silence timer
+        setStatus('listening');
+        silenceTimer = setTimeout(() => {
+          // Silence after speech — submit what we have
+          stopSpeechRecognition();
+          submitTranscript(lastInterim);
+          lastInterim = '';
+        }, 1500);
+      }
+    };
+
+    recognition.onerror = () => {
+      if (silenceTimer) clearTimeout(silenceTimer);
+      stopSpeechRecognition();
+      setStatus('idle');
+    };
+
+    recognition.onend = () => {
+      if (silenceTimer) clearTimeout(silenceTimer);
+      // Don't reset status here — onresult/submitTranscript handles it
+    };
+
+    try {
+      recognition.start();
+      recognitionRef.current = recognition;
+      setStatus('listening');
+    } catch {
+      setStatus('idle');
+    }
+  }, [stopSpeechRecognition, submitTranscript]);
+
+  // ===== MediaRecorder fallback mode =====
 
   const handleTurn = useCallback(
     async (forceTranscribe = false) => {
@@ -70,13 +157,7 @@ export function useVoiceConversation({
             setStatus('idle');
             return;
           }
-          pendingTurnRef.current = {
-            assistantIdsBefore: new Set(
-              messagesRef.current.filter((message) => message.role === 'assistant').map((message) => message.id),
-            ),
-          };
-          onSubmit(transcript);
-          setStatus('thinking');
+          submitTranscript(transcript);
         } catch {
           setStatus('idle');
         }
@@ -84,10 +165,10 @@ export function useVoiceConversation({
         turnClosingRef.current = false;
       }
     },
-    [handle, onSubmit, onTranscribeAudio],
+    [handle, onTranscribeAudio, submitTranscript],
   );
 
-  const startListening = useCallback(async () => {
+  const startMicListening = useCallback(async () => {
     if (!enabledRef.current || mutedRef.current || busyRef.current) return;
     if (statusRef.current !== 'idle') return;
     if (!onTranscribeAudio) return;
@@ -110,18 +191,21 @@ export function useVoiceConversation({
     }
   }, [handle, handleTurn, onTranscribeAudio]);
 
+  // ===== Lifecycle =====
+
   const end = useCallback(() => {
     pendingTurnRef.current = null;
     handle.cancel();
+    stopSpeechRecognition();
     onStopSpeech?.();
     turnClosingRef.current = false;
     spokenRef.current = false;
     setMuted(false);
     setStatus('idle');
-  }, [handle, onStopSpeech]);
+  }, [handle, onStopSpeech, stopSpeechRecognition]);
 
   const start = useCallback(() => {
-    if (!onTranscribeAudio) {
+    if (!useSpeechRef.current && !onTranscribeAudio) {
       end();
       return;
     }
@@ -129,8 +213,12 @@ export function useVoiceConversation({
     setMuted(false);
     spokenRef.current = false;
     setStatus('idle');
-    void startListening();
-  }, [end, onPrimeAudio, onTranscribeAudio, startListening]);
+    if (useSpeechRef.current) {
+      startSpeechListening();
+    } else {
+      void startMicListening();
+    }
+  }, [end, onPrimeAudio, onTranscribeAudio, startSpeechListening, startMicListening]);
 
   const toggle = useCallback(() => {
     if (enabled) {
@@ -145,24 +233,27 @@ export function useVoiceConversation({
       const next = !value;
       if (next) {
         handle.cancel();
+        stopSpeechRecognition();
         onStopSpeech?.();
         setStatus('idle');
       }
       return next;
     });
-  }, [handle, onStopSpeech]);
+  }, [handle, onStopSpeech, stopSpeechRecognition]);
 
   const stopTurn = useCallback(() => {
     if (statusRef.current === 'listening') {
-      void handleTurn(true);
+      if (useSpeechRef.current) {
+        stopSpeechRecognition();
+        setStatus('transcribing');
+      } else {
+        void handleTurn(true);
+      }
     }
-  }, [handleTurn]);
+  }, [handleTurn, stopSpeechRecognition]);
 
   useEffect(() => {
-    if (!enabled) {
-      end();
-      return;
-    }
+    if (!enabled) { end(); return; }
     const onKeyDown = (event: KeyboardEvent) => {
       if (event.code !== 'Space' || event.repeat || event.metaKey || event.ctrlKey || event.altKey) return;
       if (statusRef.current !== 'listening') return;
@@ -173,6 +264,7 @@ export function useVoiceConversation({
     return () => window.removeEventListener('keydown', onKeyDown, { capture: true });
   }, [enabled, end, stopTurn]);
 
+  // Detect Hermes reply → speak it → resume listening
   useEffect(() => {
     if (!enabled || muted) return;
     if (status !== 'thinking' || busy) return;
@@ -210,10 +302,15 @@ export function useVoiceConversation({
     })();
   }, [enabled, muted, status, busy, messages, onSpeakText]);
 
+  // Resume listening after speaking or when idle
   useEffect(() => {
     if (!enabled || muted || busy || status !== 'idle') return;
-    void startListening();
-  }, [enabled, muted, busy, status, startListening]);
+    if (useSpeechRef.current) {
+      startSpeechListening();
+    } else {
+      void startMicListening();
+    }
+  }, [enabled, muted, busy, status, startSpeechListening, startMicListening]);
 
   return { active: enabled, toggle, status, muted, toggleMute, level, stopTurn };
 }

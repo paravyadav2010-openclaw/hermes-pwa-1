@@ -581,13 +581,6 @@ export function Composer({
 
       {isDictating && (
         <div className="hm-composer__voice-bar" role="status" aria-live="polite">
-          <span className="hm-composer__voice-status">
-            {voiceRecorder.status === 'recording'
-              ? `Recording ${formatDuration(voiceRecorder.elapsedSeconds)} · tap mic to finish`
-              : voiceRecorder.interimText
-                ? `🎤 ${voiceRecorder.interimText}`
-                : 'Transcribing…'}
-          </span>
           <div className="hm-composer__voice-levels">
             {Array.from({ length: 5 }).map((_, i) => (
               <span
@@ -598,6 +591,7 @@ export function Composer({
                     voiceRecorder.status === 'recording'
                       ? Math.min(1, voiceRecorder.level * 1.5 + i * 0.15)
                       : 0.25,
+                  animation: voiceRecorder.status === 'transcribing' ? `hm-wave-pulse 0.6s ease-in-out ${i * 0.1}s infinite alternate` : undefined,
                 }}
               />
             ))}

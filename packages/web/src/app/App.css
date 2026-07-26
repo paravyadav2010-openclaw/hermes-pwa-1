@@ -2482,6 +2482,11 @@ a {
   transition: opacity 0.1s ease;
 }
 
+@keyframes hm-wave-pulse {
+  from { height: 6px; opacity: 0.4; }
+  to   { height: 18px; opacity: 1; }
+}
+
 .hm-composer__voice-mute {
   display: inline-flex;
   align-items: center;
