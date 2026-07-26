@@ -384,6 +384,7 @@ a {
   display: flex;
   flex-direction: column;
   min-height: 0;
+  position: relative;
   touch-action: pan-y;
   padding-bottom: var(--hm-bottom-bar-height, 64px);
 }
@@ -594,6 +595,28 @@ a {
 .hm-profile-bar__spacer {
   flex: 1;
   min-width: 4px;
+}
+
+.hm-profile-bar__switch-status {
+  overflow: hidden;
+  margin: 0 2px 2px;
+  color: var(--hm-color-muted);
+  font-size: 10px;
+  line-height: 1.25;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.hm-profile-bar__switch-status--pending {
+  color: var(--hm-color-warning);
+}
+
+.hm-profile-bar__switch-status--success {
+  color: var(--hm-color-success);
+}
+
+.hm-profile-bar__switch-status--error {
+  color: var(--hm-color-danger);
 }
 
 /* ── Context Ring ─────────────────────────────────────────── */
@@ -2540,12 +2563,42 @@ a {
 
 /* ── Terminal boot screen ─────────────────────────────────────────── */
 .hm-terminal-boot {
+  margin: auto;
   width: min(320px, 85vw);
   border-radius: 14px;
   overflow: hidden;
   background: #1a1b26;
   box-shadow: 0 8px 32px rgba(0, 0, 0, 0.3);
   font-family: var(--hm-font-mono);
+  padding: 28px 20px;
+  text-align: center;
+}
+
+.hm-terminal-title {
+  margin: 0 0 10px;
+  font-size: 18px;
+  font-weight: 600;
+  color: #c0caf5;
+  font-family: var(--hm-font-sans);
+}
+
+.hm-terminal-sub {
+  margin: 0;
+  font-size: 14px;
+  color: #565869;
+  font-family: var(--hm-font-mono);
+}
+
+.hm-terminal-sub--err {
+  color: #dc4b46;
+}
+
+.hm-terminal-dots {
+  animation: hm-blink 1s step-end infinite;
+}
+
+@keyframes hm-blink {
+  50% { opacity: 0; }
 }
 
 .hm-terminal-boot__header {

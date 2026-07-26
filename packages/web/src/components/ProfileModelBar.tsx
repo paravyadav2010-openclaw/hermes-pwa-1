@@ -53,6 +53,24 @@ function ContextRing({ used, limit, onClick }: { used: number; limit: number; on
 }
 
 type Dropdown = 'profile' | 'model' | 'effort' | 'context' | null;
+type ModelSwitchState =
+  | { kind: 'idle' }
+  | { kind: 'pending'; detail: string }
+  | { kind: 'success'; detail: string }
+  | { kind: 'error'; detail: string };
+
+type LiveSessionStatus = {
+  used: number;
+  limit: number;
+  input: number;
+  output: number;
+  total: number;
+  calls: number;
+  running: boolean;
+  model: string;
+  provider: string;
+  reasoningEffort: string;
+};
 
 interface ProfileModelBarProps {
   profiles: { name: string; displayName?: string; model?: string; provider?: string }[];
@@ -62,12 +80,11 @@ interface ProfileModelBarProps {
   sessionId: string | undefined;
   rest: RestClient;
   onModelChange: (provider: string, model: string) => void;
-  onEffortChange?: (effort: ReasoningEffort) => void;
+  onEffortChange?: (effort: ReasoningEffort) => void | Promise<void>;
   reasoningEffort?: ReasoningEffort;
   modelLabel: string;
   providerLabel: string;
-  /** Called after profile/model/effort change so the session can resume with new settings. */
-  onResumeSession?: () => void;
+
 }
 
 // Rough token estimate from message text
@@ -91,7 +108,7 @@ function estimateTokens(messages: { text: string; thinking?: string; toolCalls?:
 
 export function ProfileModelBar({
   profiles, activeName, messages, rpc, sessionId, rest, onModelChange,
-  onEffortChange, reasoningEffort, modelLabel, providerLabel, onResumeSession,
+  onEffortChange, reasoningEffort, modelLabel, providerLabel,
 }: ProfileModelBarProps) {
   const [dropdown, setDropdown] = useState<Dropdown>(null);
   const [modelOptions, setModelOptions] = useState<ModelOptions | null>(null);
@@ -102,7 +119,9 @@ export function ProfileModelBar({
   const profileLabel = active?.displayName ?? activeName ?? 'default';
   const summary = providerLabel ? `${providerLabel} · ${modelLabel}` : modelLabel;
   const barRef = useRef<HTMLDivElement>(null);
+  const switchSequenceRef = useRef(0);
   const [contextLimit, setContextLimit] = useState(1_000_000);
+  const [switchState, setSwitchState] = useState<ModelSwitchState>({ kind: 'idle' });
 
   // Keep bar label in sync when profile/prop changes; selection updates local first.
   useEffect(() => {
@@ -150,14 +169,16 @@ export function ProfileModelBar({
   }, []);
 
   // Try to get real context from session.status once when sessionId changes
-  const [rpcContext, setRpcContext] = useState<{ used: number; limit: number } | null>(null);
+  const [rpcContext, setRpcContext] = useState<LiveSessionStatus | null>(null);
   useEffect(() => {
     if (!rpc || !sessionId) { setRpcContext(null); return; }
+    const client: RpcClient = rpc;
     let cancelled = false;
     async function fetchCtx() {
       try {
-        const result = await rpc.request<Record<string, unknown>>('session.status', { session_id: sessionId });
+        const result = await client.request<Record<string, unknown>>('session.status', { session_id: sessionId });
         if (cancelled) return;
+        const numberValue = (key: string) => typeof result[key] === 'number' ? result[key] as number : 0;
         const ctxTokens = typeof result.context_tokens === 'number' ? result.context_tokens
           : typeof result.contextTokens === 'number' ? result.contextTokens
           : typeof result.usage === 'object' && result.usage
@@ -168,7 +189,18 @@ export function ProfileModelBar({
           : undefined;
         const ctxLimit = (typeof rawLimit === 'number' && rawLimit > 0) ? rawLimit : contextLimit;
         if (typeof ctxTokens === 'number' && ctxTokens >= 0) {
-          setRpcContext({ used: ctxTokens, limit: ctxLimit });
+          setRpcContext({
+            used: ctxTokens,
+            limit: ctxLimit,
+            input: numberValue('input_tokens'),
+            output: numberValue('output_tokens'),
+            total: numberValue('total_tokens'),
+            calls: numberValue('calls'),
+            running: result.running === true,
+            model: typeof result.model === 'string' ? result.model : modelLabel,
+            provider: typeof result.provider === 'string' ? result.provider : providerLabel,
+            reasoningEffort: typeof result.reasoning_effort === 'string' ? result.reasoning_effort : '',
+          });
         }
       } catch { /* silent */ }
     }
@@ -192,8 +224,10 @@ export function ProfileModelBar({
       const profiles = store.profiles.map((p) => ({ ...p, isActive: p.name === name }));
       useProfilesStore.setState({ profiles, activeName: name });
       setDropdown(null);
-      // Resume session so gateway picks up the new profile's model/settings.
-      onResumeSession?.();
+      // A profile contains identity, skills, tools, and workspace as well as a
+      // model. Do not silently attach an existing live agent to a different
+      // profile; the selected profile is used by the next new chat instead.
+      setSwitchState({ kind: 'success', detail: `Profile selected: ${name}. Start a new chat to use it.` });
     } catch { /* ignore */ }
   }
 
@@ -201,21 +235,43 @@ export function ProfileModelBar({
     setSelectedProvider(provider);
   }
 
-  function handleModelSelect(model: string) {
+  async function handleModelSelect(model: string) {
     const provider = selectedProvider ?? (providerLabel || 'default');
     onModelChange(provider, model);
     setDropdown(null);
     setSelectedProvider(null);
-    // Resume session so gateway picks up the new model.
-    onResumeSession?.();
+    if (!sessionId) {
+      setSwitchState({ kind: 'success', detail: 'Default updated. Start a session to use it.' });
+      return;
+    }
+
+    const sequence = switchSequenceRef.current + 1;
+    switchSequenceRef.current = sequence;
+    setSwitchState({ kind: 'pending', detail: `Switching to ${model}…` });
+    try {
+      await rest.sessionSwitchModel({ sessionId, model, modelProvider: provider });
+      if (switchSequenceRef.current === sequence) {
+        setSwitchState({ kind: 'success', detail: `Current session: ${provider} · ${model}` });
+      }
+    } catch (error) {
+      if (switchSequenceRef.current === sequence) {
+        const detail = error instanceof Error && error.message ? error.message : 'The gateway rejected the model switch.';
+        setSwitchState({ kind: 'error', detail: `Model unchanged: ${detail}` });
+      }
+    }
   }
 
-  function handleEffortSelect(effort: ReasoningEffort) {
+  async function handleEffortSelect(effort: ReasoningEffort) {
     setLocalEffort(effort);
-    onEffortChange?.(effort);
     setDropdown(null);
-    // Resume session so gateway picks up the new effort.
-    onResumeSession?.();
+    setSwitchState({ kind: 'pending', detail: `Setting reasoning effort to ${effortLabel(effort)}…` });
+    try {
+      await onEffortChange?.(effort);
+      setSwitchState({ kind: 'success', detail: `Current session reasoning: ${effortLabel(effort)}` });
+    } catch (error) {
+      const detail = error instanceof Error && error.message ? error.message : 'The gateway rejected the reasoning update.';
+      setSwitchState({ kind: 'error', detail: `Reasoning unchanged: ${detail}` });
+    }
   }
 
   return (
@@ -247,6 +303,11 @@ export function ProfileModelBar({
         <div className="hm-profile-bar__spacer" />
         <ContextRing used={used} limit={limit} onClick={() => setDropdown(dropdown === 'context' ? null : 'context')} />
       </div>
+      {switchState.kind !== 'idle' && (
+        <div className={`hm-profile-bar__switch-status hm-profile-bar__switch-status--${switchState.kind}`} role="status" aria-live="polite">
+          {switchState.detail}
+        </div>
+      )}
 
       {dropdown === 'profile' && (
         <div className="hm-profile-dropdown hm-profile-dropdown--up">
@@ -306,7 +367,7 @@ export function ProfileModelBar({
               key={effort}
               type="button"
               className={`hm-profile-dropdown__item${displayEffort === effort ? ' hm-profile-dropdown__item--active' : ''}`}
-              onClick={() => handleEffortSelect(effort)}
+              onClick={() => void handleEffortSelect(effort)}
             >
               <span className="hm-profile-dropdown__name">{effortLabel(effort)}</span>
               <span className="hm-profile-dropdown__meta">{effortShort(effort)}</span>
@@ -337,6 +398,29 @@ export function ProfileModelBar({
           <div className="hm-context-popover__row">
             <span className="hm-context-popover__label">Usage</span>
             <span className="hm-context-popover__value" style={{ color: pct >= 90 ? '#dc4b46' : pct >= 70 ? '#c2790f' : '#2540ff' }}>{pct}%</span>
+          </div>
+          {rpcContext && (
+            <>
+              <div className="hm-context-popover__row">
+                <span className="hm-context-popover__label">Input / output</span>
+                <span className="hm-context-popover__value">{fmtTokens(rpcContext.input)} / {fmtTokens(rpcContext.output)}</span>
+              </div>
+              <div className="hm-context-popover__row">
+                <span className="hm-context-popover__label">Calls</span>
+                <span className="hm-context-popover__value">{rpcContext.calls} · {rpcContext.running ? 'Running' : 'Idle'}</span>
+              </div>
+              {rpcContext.reasoningEffort && (
+                <div className="hm-context-popover__row">
+                  <span className="hm-context-popover__label">Reasoning</span>
+                  <span className="hm-context-popover__value">{effortLabel(rpcContext.reasoningEffort as ReasoningEffort)}</span>
+                </div>
+              )}
+            </>
+          )}
+          <div className="hm-context-popover__divider" />
+          <div className="hm-context-popover__row">
+            <span className="hm-context-popover__label">Model switch</span>
+            <span className="hm-context-popover__value">{switchState.kind === 'idle' ? 'Ready' : switchState.detail}</span>
           </div>
           {isReal ? (
             <div className="hm-context-popover__footnote">Live from gateway · every 2s</div>

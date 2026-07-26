@@ -140,6 +140,12 @@ export type ProfileModelSettingsUpdate = {
   show_reasoning?: boolean;
 };
 
+export type SessionModelSwitch = {
+  sessionId: string;
+  model: string;
+  modelProvider: string;
+};
+
 export interface PushSubscriptionSafe {
   id: string;
   profile?: string;
@@ -282,6 +288,8 @@ export interface RestClient {
   sessionMessages(sessionId: string, profile?: string): Promise<unknown>;
   sessionArtifacts(sessionId: string): Promise<Artifact[]>;
   sessionUpdate(sessionId: string, updates: { title?: string | null; archived?: boolean; profile?: string }): Promise<unknown>;
+  /** Hot-switches the live agent without recreating or resuming its session. */
+  sessionSwitchModel(body: SessionModelSwitch): Promise<unknown>;
   sessionDelete(sessionId: string, profile?: string): Promise<unknown>;
   sessionBulkDelete(ids: string[]): Promise<unknown>;
 
@@ -687,6 +695,14 @@ export function makeRestClient(http: Http): RestClient {
       return await http<unknown>(`/api/sessions/${encodeURIComponent(sessionId)}`, {
         method: 'PATCH',
         body: JSON.stringify(updates),
+      });
+    },
+
+    async sessionSwitchModel(body: SessionModelSwitch): Promise<unknown> {
+      return await http<unknown>('/api/session/update', {
+        method: 'POST',
+        body: JSON.stringify(body),
+        skipProfile: true,
       });
     },
 

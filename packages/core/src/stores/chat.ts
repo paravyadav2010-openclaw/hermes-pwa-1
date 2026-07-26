@@ -108,7 +108,7 @@ export interface ChatStore {
   loadHistory(rest: RestClient, sessionId: string): Promise<void>;
   refreshHistory(rest: RestClient, profile?: string): Promise<void>;
   restore(rest: RestClient, rpc: RpcClient, profile?: string): Promise<void>;
-  resumeSessionIntoChat(rest: RestClient, rpc: RpcClient, storedSessionId: string, profile?: string): Promise<void>;
+  resumeSessionIntoChat(rest: RestClient, rpc: RpcClient, storedSessionId: string, profile?: string, model?: string, provider?: string): Promise<void>;
   startNewSession(profile?: string): void;
   ensureLiveSession(rpc: RpcClient, profile?: string): Promise<{ sessionId: string; storedSessionId?: string | undefined }>;
   submit(rpc: RpcClient, text: string, profile?: string): Promise<SubmitResult>;
@@ -926,9 +926,10 @@ function persistActiveSessionThrottled(state: ActiveSessionPersistState): void {
   }
 }
 
-async function resumeDurableSession(rpc: RpcClient, durableSessionId: string, profile?: string) {
+async function resumeDurableSession(rpc: RpcClient, durableSessionId: string, profile?: string, model?: string, provider?: string) {
   const params: Record<string, unknown> = { session_id: durableSessionId };
   if (profile) params.profile = profile;
+  if (model) { params.model = model; params.provider = provider || undefined; }
   const raw = await rpc.request('session.resume', params, { timeoutMs: LONG_RPC_TIMEOUT_MS });
   const sessionId = liveSessionIdFromResult(raw);
   const storedSessionId = durableSessionIdFromResult(raw, durableSessionId);
@@ -986,13 +987,13 @@ function preserveLineageTail(opened: Awaited<ReturnType<typeof openDurableSessio
   return { ...opened, messages: [...opened.messages, ...meaningfulTail] };
 }
 
-async function openDurableSession(rest: RestClient, rpc: RpcClient, durableSessionId: string, profile?: string) {
+async function openDurableSession(rest: RestClient, rpc: RpcClient, durableSessionId: string, profile?: string, model?: string, provider?: string) {
   const openableSessionId = resolveOpenableStoredSessionId(durableSessionId);
 
   // Fire both network calls in parallel — they're independent.
   const [snapshotResult, resumeResult] = await Promise.allSettled([
     rest.sessionMessages(openableSessionId, profile).then(messagesFromResult),
-    resumeDurableSession(rpc, openableSessionId, profile),
+    resumeDurableSession(rpc, openableSessionId, profile, model, provider),
   ]);
 
   const snapshotMessages = snapshotResult.status === 'fulfilled' ? snapshotResult.value : undefined;
@@ -1217,7 +1218,7 @@ export const useChatStore = create<ChatStore>((set, get) => ({
     // chat submit creates a fresh live session.
   },
 
-  async resumeSessionIntoChat(rest, rpc, storedSessionId, profile) {
+  async resumeSessionIntoChat(rest, rpc, storedSessionId, profile, model, provider) {
     const cacheProfile = resolveCacheProfile(profile, get().cacheProfile);
     // Clear messages before switching so preserveLineageTail doesn't merge
     // the old session's local messages into the new session.
@@ -1225,7 +1226,7 @@ export const useChatStore = create<ChatStore>((set, get) => ({
     set({ streaming: false, error: undefined, messages: [], cacheProfile });
     const anchor = get();
     try {
-      const opened = await openDurableSession(rest, rpc, storedSessionId, cacheProfile);
+      const opened = await openDurableSession(rest, rpc, storedSessionId, cacheProfile, model, provider);
       if (!isSameChatState(get(), anchor)) return;
       const nextOpened = preserveLineageTail(opened, beforeOpen);
       set(nextOpened);

@@ -4,7 +4,7 @@
  * Enables SpeechRecognition and getUserMedia on iOS over HTTPS.
  *
  * Usage: node pwa-https-proxy.mjs
- * Then access: https://ais-macbook-pro-3.tailc56f0d.ts.net:9443/mobile/
+ * Then access: https://ais-macbook-pro-4.tailc56f0d.ts.net:9443/mobile/
  */
 
 import https from 'node:https';
@@ -18,7 +18,8 @@ const __dirname = path.dirname(fileURLToPath(import.meta.url));
 
 const CERT_DIR = path.resolve(process.env.HOME, '.hermes/certs');
 const PWA_DIR = path.resolve(process.env.HOME, '.hermes/plugins/hermes-pwa/dashboard/dist/mobile');
-const DASHBOARD_TARGET = 'http://127.0.0.1:9127';
+// Keep HTTPS on the same live dashboard instance as the working HTTP PWA.
+const DASHBOARD_TARGET = 'http://127.0.0.1:9200';
 
 const PORT = process.env.PWA_HTTPS_PORT || 9443;
 
@@ -56,6 +57,17 @@ const proxy = httpProxy.createProxyServer({
   xfwd: false,
 });
 
+// The dashboard only accepts same-origin browser traffic. The HTTPS Tailscale
+// origin is public-facing; make both HTTP and WebSocket upstream requests look
+// like they originated at the loopback dashboard.
+function setDashboardOrigin(proxyReq) {
+  proxyReq.setHeader('host', new URL(DASHBOARD_TARGET).host);
+  proxyReq.setHeader('origin', DASHBOARD_TARGET);
+}
+
+proxy.on('proxyReq', setDashboardOrigin);
+proxy.on('proxyReqWs', setDashboardOrigin);
+
 // Rewrite Set-Cookie for HTTPS compatibility
 proxy.on('proxyRes', (proxyRes, req, res) => {
   if (proxyRes.headers['set-cookie']) {
@@ -63,11 +75,14 @@ proxy.on('proxyRes', (proxyRes, req, res) => {
       ? proxyRes.headers['set-cookie']
       : [proxyRes.headers['set-cookie']];
     proxyRes.headers['set-cookie'] = cookies.map((c) => {
-      let cookie = c;
-      if (!cookie.includes('Secure')) cookie += '; Secure';
-      if (cookie.includes('SameSite=lax') || cookie.includes('SameSite=strict')) {
-        cookie = cookie.replace(/SameSite=\w+/i, 'SameSite=None');
-      }
+      // The browser sees this response as the Tailscale HTTPS origin, not 127.0.0.1.
+      // Remove backend host scoping and normalise cookie flags for cross-site HTTPS use.
+      let cookie = c
+        .replace(/;\s*Domain=[^;]*/gi, '')
+        .replace(/;\s*Path=[^;]*/gi, '; Path=/')
+        .replace(/;\s*Secure\b/gi, '')
+        .replace(/;\s*SameSite=[^;]*/gi, '');
+      cookie += '; Secure; SameSite=None';
       return cookie;
     });
   }
@@ -138,7 +153,7 @@ server.on('upgrade', (req, socket, head) => {
 });
 
 server.listen(PORT, '0.0.0.0', () => {
-  console.log(`🔒 PWA HTTPS proxy running on https://ais-macbook-pro-3.tailc56f0d.ts.net:${PORT}/mobile/`);
+  console.log(`🔒 PWA HTTPS proxy running on https://ais-macbook-pro-4.tailc56f0d.ts.net:${PORT}/mobile/`);
   console.log(`   Static files: ${PWA_DIR}`);
   console.log(`   Proxying API:  ${DASHBOARD_TARGET}`);
   console.log(`   WebSocket:     ✅ native via http-proxy`);

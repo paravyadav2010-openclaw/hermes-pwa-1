@@ -227,6 +227,25 @@ describe('makeRestClient', () => {
     expect(result).toEqual({ ok: true, provider: 'anthropic', model: 'claude-sonnet-4' });
   });
 
+  it('hot-switches the current live session without profile query scoping', async () => {
+    httpMock.mockResolvedValue({ ok: true });
+
+    await client.sessionSwitchModel({ sessionId: 'live-1', model: 'mimo-v2.5', modelProvider: 'opencode-go' });
+
+    expect(httpMock).toHaveBeenCalledWith('/api/session/update', {
+      method: 'POST',
+      body: JSON.stringify({ sessionId: 'live-1', model: 'mimo-v2.5', modelProvider: 'opencode-go' }),
+      skipProfile: true,
+    });
+  });
+
+  it('propagates a rejected hot-switch response', async () => {
+    const error = new HermesHttpError(500, 'Server Error', 'switch failed');
+    httpMock.mockRejectedValue(error);
+
+    await expect(client.sessionSwitchModel({ sessionId: 'live-1', model: 'mimo-v2.5', modelProvider: 'opencode-go' })).rejects.toBe(error);
+  });
+
   it('fetches pending plugin actions for the active profile', async () => {
     client.setActiveProfile('dev');
     httpMock.mockResolvedValue({

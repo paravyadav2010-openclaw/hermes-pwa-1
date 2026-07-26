@@ -230,6 +230,7 @@ const noopRest: RestClient = {
   profileSessions:     () => Promise.resolve(previewSessions),
   sessionMessages:     () => Promise.resolve({ messages: [] }),
   sessionUpdate:       () => Promise.resolve({ ok: true }),
+  sessionSwitchModel:  () => Promise.resolve({ ok: true }),
   sessionDelete:       () => Promise.resolve({ ok: true }),
   sessionBulkDelete:   () => Promise.resolve({ ok: true }),
   systemStats:         () => Promise.resolve({

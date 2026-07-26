@@ -125,9 +125,13 @@ export function Chat({ rpc, rest, onNavigate }: ChatProps) {
   const refreshInFlightRef = useRef(false);
   const queuedPromptsRef = useRef<string[]>([]);
   const voiceAudioSequenceRef = useRef(0);
+
   const [liveStatus, setLiveStatus] = useState<LiveStatus>({ text: '' });
   const [composerLayoutVersion, setComposerLayoutVersion] = useState(0);
-  const profileForSubmit = activeName === currentName ? activeName : currentName;
+  // The profile picker writes the sticky selection. Explicit session.create /
+  // session.resume calls can safely use it even though this dashboard process
+  // itself was launched under a different profile.
+  const profileForSubmit = activeName ?? currentName;
   const activeSessionIds = useMemo(
     () => [sessionId, storedSessionId].filter((value): value is string => Boolean(value)),
     [sessionId, storedSessionId],
@@ -578,7 +582,7 @@ export function Chat({ rpc, rest, onNavigate }: ChatProps) {
 
   const activeProfile = useProfilesStore((s) => s.profiles.find((p) => p.name === s.activeName));
   const profileLabel = activeProfile?.displayName ?? activeName ?? 'default';
-  const modelLabel = activeProfile?.model ?? 'GPT-5.5';
+  const modelLabel = activeProfile?.model ?? '…';
   const busySubmitLabel =
     busyInputMode === 'queue' ? 'Queue message' : busyInputMode === 'interrupt' ? 'Interrupt and send' : 'Steer agent';
   const busyPlaceholder =
@@ -831,7 +835,7 @@ export function Chat({ rpc, rest, onNavigate }: ChatProps) {
 
   if (connection.state === 'init' || connection.state === 'login' || connection.state === 'offline') {
     return (
-      <div className="hm-empty-state">
+      <div style={{ flex: 1, display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center', textAlign: 'center', padding: '24px', marginBottom: 'calc(-1 * var(--hm-bottom-bar-height, 64px))' }}>
         <p>Connecting to Hermes…</p>
         <p className="hm-muted">{connection.error ?? 'Please wait.'}</p>
       </div>
@@ -851,6 +855,7 @@ export function Chat({ rpc, rest, onNavigate }: ChatProps) {
         aria-busy={streaming}
         aria-label="Conversation"
       >
+        {messages.length > 0 && (
         <div className="hm-chat__context">
           <span className="hm-chat__context-chip hm-chat__context-chip--primary">
             <Icon name="robot" size={12} />
@@ -862,6 +867,7 @@ export function Chat({ rpc, rest, onNavigate }: ChatProps) {
             {branchLabel}
           </span>
         </div>
+        )}
 
         {messages.length === 0 ? (
           <div className="hm-empty-state hm-empty-state--chat">
@@ -922,18 +928,21 @@ export function Chat({ rpc, rest, onNavigate }: ChatProps) {
                 .setModel(rest, activeName, provider, model, activeProfile?.reasoningEffort, activeProfile?.showReasoning)
                 .catch(() => {});
             }}
-            onEffortChange={(effort) => {
+            onEffortChange={async (effort) => {
               if (!activeName) return;
               const provider = activeProfile?.provider ?? '';
               const model = activeProfile?.model ?? modelLabel;
-              useProfilesStore
+              await useProfilesStore
                 .getState()
-                .setModel(rest, activeName, provider, model, effort, activeProfile?.showReasoning)
-                .catch(() => {});
-            }}
-            onResumeSession={() => {
-              const sid = useChatStore.getState().storedSessionId;
-              if (sid) useChatStore.getState().resumeSessionIntoChat(rest, rpc, sid, activeName);
+                .setModel(rest, activeName, provider, model, effort, activeProfile?.showReasoning);
+              // Persist to the profile, then apply to the already-live agent.
+              // config.set is the gateway's session-scoped reasoning path.
+              const live = await ensureLiveSession(rpc, profileForSubmit);
+              await rpc.request('config.set', {
+                key: 'reasoning',
+                value: effort,
+                session_id: live.sessionId,
+              });
             }}
           />
         </div>
