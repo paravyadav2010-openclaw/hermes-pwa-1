@@ -1,7 +1,7 @@
-import { useRef, useState } from 'react';
+import { useCallback, useEffect, useRef, useState } from 'react';
 import { useMicRecorder } from './useMicRecorder';
 
-export type VoiceRecorderStatus = 'idle' | 'recording' | 'transcribing' | 'unsupported';
+export type VoiceRecorderStatus = 'idle' | 'recording' | 'transcribing';
 
 export interface VoiceRecorderState {
   status: VoiceRecorderStatus;
@@ -23,13 +23,9 @@ declare global {
   }
 }
 
-/** Check if the browser likely supports mic capture (needs HTTPS or localhost). */
 function canUseMic(): boolean {
   if (typeof navigator === 'undefined') return false;
-  // getUserMedia exists in secure contexts only
   if (!navigator.mediaDevices?.getUserMedia) return false;
-  // On iOS, getUserMedia only works over HTTPS (or localhost)
-  // Quick check: if protocol is http and host isn't localhost, it won't work
   if (
     typeof window !== 'undefined' &&
     window.location.protocol === 'http:' &&
@@ -41,7 +37,6 @@ function canUseMic(): boolean {
   return true;
 }
 
-/** Check if SpeechRecognition is available. */
 function hasSpeechRecognition(): boolean {
   const Ctor = (window as any).SpeechRecognition || (window as any).webkitSpeechRecognition;
   return !!Ctor;
@@ -56,7 +51,6 @@ export function useVoiceRecorder({
   const { handle, level, recording } = useMicRecorder();
   const [status, setStatus] = useState<VoiceRecorderStatus>('idle');
   const [elapsedSeconds, setElapsedSeconds] = useState(0);
-  const [interimText, setInterimText] = useState('');
   const startedAtRef = useRef(0);
   const intervalRef = useRef<number | null>(null);
   const timeoutRef = useRef<number | null>(null);
@@ -71,6 +65,8 @@ export function useVoiceRecorder({
       timeoutRef.current = null;
     }
   };
+
+  useEffect(() => () => clearTimers(), []);
 
   const stop = async () => {
     clearTimers();
@@ -98,7 +94,6 @@ export function useVoiceRecorder({
   const startRecording = async () => {
     if (!onTranscribeAudio) return;
     if (!canUseMic()) {
-      // Can't use mic — focus input so iOS keyboard dictation takes over
       onFocusInput?.();
       return;
     }
@@ -119,7 +114,6 @@ export function useVoiceRecorder({
       const cap = Math.max(1, Math.min(Math.trunc(maxRecordingSeconds), 600));
       timeoutRef.current = window.setTimeout(() => void stop(), cap * 1000);
     } catch {
-      // Mic access denied or unavailable — focus input for keyboard dictation
       setStatus('idle');
       onFocusInput?.();
     }
@@ -129,7 +123,6 @@ export function useVoiceRecorder({
     if (!hasSpeechRecognition()) return false;
 
     setStatus('transcribing');
-    setInterimText('');
     const SpeechCtor =
       (window as any).SpeechRecognition || (window as any).webkitSpeechRecognition;
     const recognition = new SpeechCtor();
@@ -140,7 +133,6 @@ export function useVoiceRecorder({
 
     const finish = (text: string) => {
       setStatus('idle');
-      setInterimText('');
       try { recognition.abort(); } catch { /* already done */ }
       if (text && onTranscript) {
         onTranscript(text);
@@ -152,18 +144,14 @@ export function useVoiceRecorder({
 
     recognition.onresult = (event: any) => {
       clearTimeout(timeout);
-      // Show interim results in real-time; commit only when final
       const result = event.results[event.results.length - 1];
       const transcript = (result[0]?.transcript ?? '').trim();
       if (result.isFinal) {
         finish(transcript);
       } else {
-        setInterimText(transcript);
-        // Reset timeout on each interim result
-        timeout = setTimeout(() => {
-          // If we have interim text but no final after timeout, commit what we have
-          finish(transcript);
-        }, 3000);
+        // Stream interim results directly into the composer via onTranscript
+        onTranscript?.(transcript);
+        timeout = setTimeout(() => finish(transcript), 3000);
       }
     };
 
@@ -194,18 +182,15 @@ export function useVoiceRecorder({
     }
     if (status !== 'idle') return;
 
-    // 1. Try SpeechRecognition (needs HTTPS + supported browser)
     if (dictateWithSpeech()) return;
 
-    // 2. Try MediaRecorder (needs HTTPS or localhost)
     if (canUseMic()) {
       void startRecording();
       return;
     }
 
-    // 3. Neither available — focus input so iOS keyboard dictation works
     onFocusInput?.();
   };
 
-  return { dictate, status, elapsedSeconds, level, interimText };
+  return { dictate, status, elapsedSeconds, level };
 }
