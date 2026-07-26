@@ -56,6 +56,7 @@ export function useVoiceRecorder({
   const { handle, level, recording } = useMicRecorder();
   const [status, setStatus] = useState<VoiceRecorderStatus>('idle');
   const [elapsedSeconds, setElapsedSeconds] = useState(0);
+  const [interimText, setInterimText] = useState('');
   const startedAtRef = useRef(0);
   const intervalRef = useRef<number | null>(null);
   const timeoutRef = useRef<number | null>(null);
@@ -128,15 +129,18 @@ export function useVoiceRecorder({
     if (!hasSpeechRecognition()) return false;
 
     setStatus('transcribing');
+    setInterimText('');
     const SpeechCtor =
       (window as any).SpeechRecognition || (window as any).webkitSpeechRecognition;
     const recognition = new SpeechCtor();
     recognition.lang = 'en-US';
-    recognition.interimResults = false;
+    recognition.interimResults = true;  // word-by-word like native iOS dictation
+    recognition.continuous = false;
     recognition.maxAlternatives = 1;
 
     const finish = (text: string) => {
       setStatus('idle');
+      setInterimText('');
       try { recognition.abort(); } catch { /* already done */ }
       if (text && onTranscript) {
         onTranscript(text);
@@ -144,12 +148,23 @@ export function useVoiceRecorder({
       onFocusInput?.();
     };
 
-    const timeout = setTimeout(() => finish(''), 15000);
+    let timeout = setTimeout(() => finish(''), 15000);
 
     recognition.onresult = (event: any) => {
       clearTimeout(timeout);
-      const transcript = event.results?.[0]?.[0]?.transcript ?? '';
-      finish(transcript.trim());
+      // Show interim results in real-time; commit only when final
+      const result = event.results[event.results.length - 1];
+      const transcript = (result[0]?.transcript ?? '').trim();
+      if (result.isFinal) {
+        finish(transcript);
+      } else {
+        setInterimText(transcript);
+        // Reset timeout on each interim result
+        timeout = setTimeout(() => {
+          // If we have interim text but no final after timeout, commit what we have
+          finish(transcript);
+        }, 3000);
+      }
     };
 
     recognition.onerror = () => {
@@ -192,5 +207,5 @@ export function useVoiceRecorder({
     onFocusInput?.();
   };
 
-  return { dictate, status, elapsedSeconds, level };
+  return { dictate, status, elapsedSeconds, level, interimText };
 }

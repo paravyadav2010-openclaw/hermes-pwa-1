@@ -566,7 +566,9 @@ export function Composer({
           <span className="hm-composer__voice-status">
             {voiceRecorder.status === 'recording'
               ? `Recording ${formatDuration(voiceRecorder.elapsedSeconds)} · tap mic to finish`
-              : 'Transcribing voice…'}
+              : voiceRecorder.interimText
+                ? voiceRecorder.interimText
+                : 'Transcribing voice…'}
           </span>
           <div className="hm-composer__voice-levels">
             {Array.from({ length: 5 }).map((_, i) => (
