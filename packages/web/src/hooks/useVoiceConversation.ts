@@ -39,6 +39,7 @@ export function useVoiceConversation({
   const { handle, level } = useMicRecorder();
   const [status, setStatus] = useState<ConversationStatus>('idle');
   const [muted, setMuted] = useState(false);
+  const [interimText, setInterimText] = useState('');
   const turnClosingRef = useRef(false);
   const enabledRef = useRef(enabled);
   const mutedRef = useRef(muted);
@@ -61,6 +62,7 @@ export function useVoiceConversation({
 
   const submitTranscript = useCallback((transcript: string) => {
     if (!transcript) return;
+    setInterimText('');
     pendingTurnRef.current = {
       assistantIdsBefore: new Set(
         messagesRef.current.filter((m) => m.role === 'assistant').map((m) => m.id),
@@ -103,16 +105,17 @@ export function useVoiceConversation({
       if (silenceTimer) clearTimeout(silenceTimer);
 
       if (result.isFinal) {
-        // Got final result — submit and pause recognition
         stopSpeechRecognition();
-        submitTranscript(transcript);
+        setStatus('transcribing');
+        // Brief pause to show the text before sending
+        setTimeout(() => submitTranscript(transcript), 300);
       } else {
-        // Still speaking — reset silence timer
+        setInterimText(transcript);
         setStatus('listening');
         silenceTimer = setTimeout(() => {
-          // Silence after speech — submit what we have
           stopSpeechRecognition();
-          submitTranscript(lastInterim);
+          setStatus('transcribing');
+          setTimeout(() => submitTranscript(lastInterim), 300);
           lastInterim = '';
         }, 1500);
       }
@@ -121,12 +124,12 @@ export function useVoiceConversation({
     recognition.onerror = () => {
       if (silenceTimer) clearTimeout(silenceTimer);
       stopSpeechRecognition();
+      setInterimText('');
       setStatus('idle');
     };
 
     recognition.onend = () => {
       if (silenceTimer) clearTimeout(silenceTimer);
-      // Don't reset status here — onresult/submitTranscript handles it
     };
 
     try {
@@ -185,6 +188,7 @@ export function useVoiceConversation({
         setStatus('idle');
         return;
       }
+      setInterimText('');
       setStatus('listening');
     } catch {
       setStatus('idle');
@@ -201,6 +205,7 @@ export function useVoiceConversation({
     turnClosingRef.current = false;
     spokenRef.current = false;
     setMuted(false);
+    setInterimText('');
     setStatus('idle');
   }, [handle, onStopSpeech, stopSpeechRecognition]);
 
@@ -212,6 +217,7 @@ export function useVoiceConversation({
     onPrimeAudio?.();
     setMuted(false);
     spokenRef.current = false;
+    setInterimText('');
     setStatus('idle');
     if (useSpeechRef.current) {
       startSpeechListening();
@@ -312,5 +318,5 @@ export function useVoiceConversation({
     }
   }, [enabled, muted, busy, status, startSpeechListening, startMicListening]);
 
-  return { active: enabled, toggle, status, muted, toggleMute, level, stopTurn };
+  return { active: enabled, toggle, status, muted, toggleMute, level, stopTurn, interimText };
 }

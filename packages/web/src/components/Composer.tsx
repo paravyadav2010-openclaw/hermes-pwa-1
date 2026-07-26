@@ -602,11 +602,13 @@ export function Composer({
       {voiceModeEnabled && (
         <div className="hm-composer__voice-bar">
           <span className="hm-composer__voice-status">
-            {voiceConversation.status === 'idle' && 'Voice mode on'}
-            {voiceConversation.status === 'listening' && 'Listening'}
-            {voiceConversation.status === 'transcribing' && 'Transcribing'}
-            {voiceConversation.status === 'thinking' && 'Thinking'}
-            {voiceConversation.status === 'speaking' && 'Speaking'}
+            {voiceConversation.interimText
+              ? `🎤 ${voiceConversation.interimText}`
+              : voiceConversation.status === 'listening' ? 'Listening…'
+              : voiceConversation.status === 'transcribing' ? 'Transcribing…'
+              : voiceConversation.status === 'thinking' ? 'Thinking…'
+              : voiceConversation.status === 'speaking' ? '🔊 Speaking…'
+              : 'Voice mode on'}
           </span>
           <div className="hm-composer__voice-levels">
             {Array.from({ length: 5 }).map((_, i) => (

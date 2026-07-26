@@ -712,11 +712,21 @@ export function Chat({ rpc, rest, onNavigate }: ChatProps) {
   }, []);
 
   const primeVoiceAudio = useCallback(() => {
-    // Prime speechSynthesis with a silent utterance to unlock audio on iOS.
+    // iOS Safari: speechSynthesis must be activated by a REAL audible utterance
+    // during a user gesture. Silent utterances don't fully unlock the audio session.
     if (!window.speechSynthesis) return;
-    const utterance = new SpeechSynthesisUtterance('');
-    utterance.volume = 0;
+
+    // Ensure voices are loaded
+    if (window.speechSynthesis.getVoices().length === 0) {
+      window.speechSynthesis.onvoiceschanged = () => {};
+    }
+
+    // Speak a real short word to fully activate the iOS audio session
+    const utterance = new SpeechSynthesisUtterance('Hi');
+    utterance.volume = 0.01; // nearly silent but REAL audio — this unlocks iOS
+    utterance.rate = 1.5;
     window.speechSynthesis.speak(utterance);
+    // Don't cancel — let it complete (nearly inaudible) to properly unlock
   }, []);
 
   const speakVoiceText = useCallback(
@@ -724,6 +734,20 @@ export function Chat({ rpc, rest, onNavigate }: ChatProps) {
       const speakable = text.trim();
       if (!speakable || !window.speechSynthesis) return;
       const ownSequence = voiceAudioSequenceRef.current;
+
+      // Ensure voices are loaded (iOS loads them async)
+      if (window.speechSynthesis.getVoices().length === 0) {
+        await new Promise<void>((resolve) => {
+          window.speechSynthesis.onvoiceschanged = () => resolve();
+          setTimeout(() => resolve(), 1000); // fallback
+        });
+      }
+
+      // Pick a good English voice
+      const voices = window.speechSynthesis.getVoices();
+      const enVoice = voices.find((v) => v.lang.startsWith('en') && v.localService)
+        ?? voices.find((v) => v.lang.startsWith('en'))
+        ?? voices[0];
 
       await new Promise<void>((resolve) => {
         if (ownSequence !== voiceAudioSequenceRef.current) {
@@ -735,6 +759,7 @@ export function Chat({ rpc, rest, onNavigate }: ChatProps) {
         utterance.lang = 'en-US';
         utterance.rate = 1.0;
         utterance.volume = 1;
+        if (enVoice) utterance.voice = enVoice;
 
         let settled = false;
         const finish = () => {
@@ -746,7 +771,14 @@ export function Chat({ rpc, rest, onNavigate }: ChatProps) {
         utterance.onend = finish;
         utterance.onerror = finish;
 
+        // iOS workaround: pause+resume to ensure audio plays
+        window.speechSynthesis.pause();
+        window.speechSynthesis.resume();
         window.speechSynthesis.speak(utterance);
+
+        // iOS safety: onend sometimes never fires
+        const estimatedMs = Math.max(3000, speakable.length * 80);
+        setTimeout(finish, estimatedMs);
       });
     },
     [],
