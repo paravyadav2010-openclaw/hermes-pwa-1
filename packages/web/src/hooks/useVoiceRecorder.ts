@@ -16,6 +16,13 @@ interface VoiceRecorderOptions {
   onFocusInput?: (() => void) | undefined;
 }
 
+declare global {
+  interface Window {
+    SpeechRecognition?: new () => SpeechRecognition;
+    webkitSpeechRecognition?: new () => SpeechRecognition;
+  }
+}
+
 export function useVoiceRecorder({
   maxRecordingSeconds = 120,
   onTranscribeAudio,
@@ -88,10 +95,69 @@ export function useVoiceRecorder({
     }
   };
 
+  /**
+   * Use browser SpeechRecognition directly (iOS/macOS dictation, Chrome Web Speech).
+   * Bypasses MediaRecorder so the user gesture reaches SpeechRecognition.start()
+   * immediately — avoids the "gesture expired after async mic release" deadlock.
+   */
+  const dictateWithSpeech = () => {
+    const SpeechCtor =
+      (window as any).SpeechRecognition || (window as any).webkitSpeechRecognition;
+    if (!SpeechCtor) return false;
+
+    setStatus('transcribing');
+    const recognition = new SpeechCtor();
+    recognition.lang = 'en-US';
+    recognition.interimResults = false;
+    recognition.maxAlternatives = 1;
+
+    const finish = (text: string) => {
+      setStatus('idle');
+      try { recognition.abort(); } catch { /* already done */ }
+      if (text && onTranscript) {
+        onTranscript(text);
+      }
+      onFocusInput?.();
+    };
+
+    const timeout = setTimeout(() => finish(''), 15000);
+
+    recognition.onresult = (event: any) => {
+      clearTimeout(timeout);
+      const transcript = event.results?.[0]?.[0]?.transcript ?? '';
+      finish(transcript.trim());
+    };
+
+    recognition.onerror = () => {
+      clearTimeout(timeout);
+      finish('');
+    };
+
+    recognition.onend = () => {
+      clearTimeout(timeout);
+      // If onresult fired, finish() already handled it.
+      // If onend fires without onresult (user cancelled, no speech), settle here.
+      if (status !== 'transcribing') return; // already settled via onresult
+      finish('');
+    };
+
+    try {
+      recognition.start();
+      return true;
+    } catch {
+      clearTimeout(timeout);
+      setStatus('idle');
+      return false;
+    }
+  };
+
   const dictate = () => {
     if (recording) {
       void stop();
     } else if (status === 'idle') {
+      // Prefer SpeechRecognition — starts within the user gesture, no mic conflict.
+      if (dictateWithSpeech()) return;
+      // Fall back to MediaRecorder blob-based recording.
       void start();
     }
   };
