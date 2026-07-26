@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useRef, useState } from 'react';
+import { useEffect, useRef, useState } from 'react';
 import { useMicRecorder } from './useMicRecorder';
 
 export type VoiceRecorderStatus = 'idle' | 'recording' | 'transcribing';
@@ -51,6 +51,7 @@ export function useVoiceRecorder({
   const { handle, level, recording } = useMicRecorder();
   const [status, setStatus] = useState<VoiceRecorderStatus>('idle');
   const [elapsedSeconds, setElapsedSeconds] = useState(0);
+  const [interimText, setInterimText] = useState('');
   const startedAtRef = useRef(0);
   const intervalRef = useRef<number | null>(null);
   const timeoutRef = useRef<number | null>(null);
@@ -123,6 +124,7 @@ export function useVoiceRecorder({
     if (!hasSpeechRecognition()) return false;
 
     setStatus('transcribing');
+    setInterimText('');
     const SpeechCtor =
       (window as any).SpeechRecognition || (window as any).webkitSpeechRecognition;
     const recognition = new SpeechCtor();
@@ -133,6 +135,7 @@ export function useVoiceRecorder({
 
     const finish = (text: string) => {
       setStatus('idle');
+      setInterimText('');
       try { recognition.abort(); } catch { /* already done */ }
       if (text && onTranscript) {
         onTranscript(text);
@@ -140,7 +143,7 @@ export function useVoiceRecorder({
       onFocusInput?.();
     };
 
-    let timeout = setTimeout(() => finish(''), 15000);
+    let timeout: ReturnType<typeof setTimeout> = setTimeout(() => finish(''), 15000);
 
     recognition.onresult = (event: any) => {
       clearTimeout(timeout);
@@ -149,8 +152,8 @@ export function useVoiceRecorder({
       if (result.isFinal) {
         finish(transcript);
       } else {
-        // Stream interim results directly into the composer via onTranscript
-        onTranscript?.(transcript);
+        // Show interim in voice bar; final goes to composer via onTranscript
+        setInterimText(transcript);
         timeout = setTimeout(() => finish(transcript), 3000);
       }
     };
@@ -192,5 +195,5 @@ export function useVoiceRecorder({
     onFocusInput?.();
   };
 
-  return { dictate, status, elapsedSeconds, level };
+  return { dictate, status, elapsedSeconds, level, interimText };
 }

@@ -189,12 +189,10 @@ export function Composer({
 
   const handleTranscript = useCallback((transcript: string) => {
     setText((prev) => {
-      // During speech dictation, replace (not append) — interim words flow in live
-      if (voiceRecorder.status === 'transcribing') return transcript;
       const sep = prev && !prev.endsWith(' ') && !prev.endsWith('\n') ? ' ' : '';
       return `${prev}${sep}${transcript}`;
     });
-  }, [voiceRecorder.status]);
+  }, []);
 
   const focusInput = useCallback(() => {
     textareaRef.current?.focus();
@@ -568,7 +566,9 @@ export function Composer({
           <span className="hm-composer__voice-status">
             {voiceRecorder.status === 'recording'
               ? `Recording ${formatDuration(voiceRecorder.elapsedSeconds)} · tap mic to finish`
-              : 'Transcribing…'}
+              : voiceRecorder.interimText
+                ? `🎤 ${voiceRecorder.interimText}`
+                : 'Transcribing…'}
           </span>
           <div className="hm-composer__voice-levels">
             {Array.from({ length: 5 }).map((_, i) => (
