@@ -522,7 +522,7 @@ export function Composer({
           className={`hm-composer__action ${isRecording ? 'hm-composer__action--recording' : ''}`}
           onClick={voiceRecorder.dictate}
           disabled={isVoiceBusy}
-          aria-label={isRecording ? 'Stop recording' : 'Record voice'}
+          aria-label={isRecording ? 'Stop recording' : isDictating ? 'Transcribing…' : 'Dictate (uses keyboard mic on iOS)'}
         >
           <Icon name="mic" size={19} />
           {isRecording && (
