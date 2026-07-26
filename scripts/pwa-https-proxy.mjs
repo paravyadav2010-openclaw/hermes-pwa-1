@@ -155,6 +155,48 @@ const server = https.createServer(tlsOptions, (req, res) => {
   proxyToDashboard(req, res);
 });
 
+// WebSocket upgrade handling — the PWA uses /api/ws for real-time comms
+server.on('upgrade', (req, socket, head) => {
+  console.log(`WS  ${req.url}`);
+
+  const targetUrl = new URL(req.url, DASHBOARD_TARGET);
+
+  const options = {
+    hostname: '127.0.0.1',
+    port: 9127,
+    path: targetUrl.pathname + targetUrl.search,
+    method: req.method,
+    headers: { ...req.headers, host: '127.0.0.1:9127' },
+  };
+
+  const proxyReq = http.request(options);
+  proxyReq.on('upgrade', (proxyRes, proxySocket, proxyHead) => {
+    // Write the 101 response back to the browser
+    const headers = [
+      `HTTP/${proxyReq.httpVersion} 101 Switching Protocols`,
+      ...Object.entries(proxyRes.headers).map(([k, v]) => `${k}: ${v}`),
+      '\r\n',
+    ].join('\r\n');
+
+    socket.write(headers);
+
+    // Tunnel: pipe browser ↔ dashboard bidirectionally
+    proxySocket.write(head);
+    proxySocket.pipe(socket);
+    socket.pipe(proxySocket);
+
+    proxySocket.on('error', () => socket.destroy());
+    socket.on('error', () => proxySocket.destroy());
+  });
+
+  proxyReq.on('error', (err) => {
+    console.error('WS proxy error:', err.message);
+    socket.destroy();
+  });
+
+  proxyReq.end();
+});
+
 server.listen(PORT, '0.0.0.0', () => {
   console.log(`🔒 PWA HTTPS proxy running on https://ais-macbook-pro-3.tailc56f0d.ts.net:${PORT}/mobile/`);
   console.log(`   Static files: ${PWA_DIR}`);
