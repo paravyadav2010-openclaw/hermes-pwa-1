@@ -40,6 +40,7 @@ const TOOL_META: Record<string, ToolMeta> = {
   read_file: { done: 'Read file', pending: 'Reading file', icon: 'file', tone: 'file' },
   search_files: { done: 'Searched files', pending: 'Searching files', icon: 'search', tone: 'file' },
   session_search_recall: { done: 'Searched session history', pending: 'Searching session history', icon: 'search', tone: 'agent' },
+  skill_view: { done: 'Opened skill', pending: 'Opening skill', icon: 'file', tone: 'agent' },
   terminal: { done: 'Ran command', pending: 'Running command', icon: 'terminal', tone: 'terminal' },
   todo: { done: 'Updated todos', pending: 'Updating todos', icon: 'settings', tone: 'agent' },
   vision_analyze: { done: 'Analyzed image', pending: 'Analyzing image', icon: 'search', tone: 'image' },
@@ -133,6 +134,7 @@ function contextValue(value: unknown): string {
   const row = parseMaybeObject(value);
   if (typeof row.context === 'string') return row.context;
   if (typeof row.preview === 'string') return row.preview;
+  if (typeof row.args_text === 'string') return row.args_text;
   return typeof value === 'string' ? value : '';
 }
 
@@ -159,6 +161,12 @@ function findFirstUrl(args: Record<string, unknown>, result: Record<string, unkn
   return '';
 }
 
+function basename(path: string): string {
+  const cleaned = path.replace(/\\/g, '/');
+  const parts = cleaned.split('/').filter(Boolean);
+  return parts[parts.length - 1] || path;
+}
+
 function toolStatus(tool: ToolCall, resultRecord: Record<string, unknown>): ToolStatus {
   if (tool.output === undefined) return 'running';
   if (resultRecord.error || resultRecord.status === 'error') return 'error';
@@ -171,58 +179,30 @@ function fallbackDetailText(args: Record<string, unknown>, result: Record<string
   return resultJson || argsJson;
 }
 
-function toolSubtitle(tool: ToolCall, argsRecord: Record<string, unknown>, resultRecord: Record<string, unknown>): string {
-  const toolName = tool.name;
-
-  if (toolName === 'browser_navigate') {
-    const url =
-      firstStringField(argsRecord, ['url', 'target']) || firstStringField(resultRecord, ['url']) || findFirstUrl(argsRecord, resultRecord);
-    return url ? hostnameOf(url) : 'Navigated in browser';
-  }
-
-  if (toolName === 'browser_click') {
-    const clicked = firstStringField(resultRecord, ['clicked']) || firstStringField(argsRecord, ['ref', 'target']);
-    if (!clicked) return 'Clicked on page';
-    return clicked.startsWith('@') ? `Clicked page element (internal ref ${clicked})` : `Clicked ${clicked}`;
-  }
-
-  if (toolName === 'browser_fill' || toolName === 'browser_type') {
-    const field = firstStringField(argsRecord, ['label', 'field', 'ref', 'target']);
-    const value = firstStringField(argsRecord, ['value', 'text']);
-    return (
-      [field && `Field: ${field}`, value && `Value: ${compactPreview(value, 42)}`].filter(Boolean).join(' · ') || 'Filled page input'
-    );
-  }
-
-  if (toolName === 'web_search') {
-    const query = firstStringField(argsRecord, ['search_term', 'query']) || contextValue(argsRecord);
-    return query ? `Query: ${query}` : 'Queried web sources';
-  }
-
-  if (toolName === 'terminal' || toolName === 'execute_code') {
-    const command = firstStringField(argsRecord, ['command', 'code']) || contextValue(argsRecord);
-    return command ? compactPreview(command, 120) : 'Command';
-  }
-
-  if (toolName === 'read_file' || toolName === 'write_file' || toolName === 'edit_file') {
-    const path = firstStringField(argsRecord, ['path', 'file', 'filepath']);
-    return path || 'Changed file';
-  }
-
-  if (toolName === 'web_extract') {
-    const url =
-      firstStringField(argsRecord, ['url']) || firstStringField(resultRecord, ['url']) || findFirstUrl(argsRecord, resultRecord);
-    return url ? hostnameOf(url) : 'Fetched webpage';
-  }
-
-  const resultPreview = compactPreview(resultRecord, 120);
-  if (resultPreview && resultPreview !== '{}' && resultPreview !== '[]') return resultPreview;
-  const argsPreview = compactPreview(argsRecord, 120);
-  if (argsPreview && argsPreview !== '{}' && argsPreview !== '[]') return argsPreview;
-  const fallback = fallbackDetailText(argsRecord, resultRecord);
-  return fallback && fallback !== '{}' && fallback !== '[]' ? fallback : '';
+function looksLikeJsonBlob(text: string): boolean {
+  const t = text.trim();
+  return (t.startsWith('{') && t.endsWith('}')) || (t.startsWith('[') && t.endsWith(']'));
 }
 
+function toolTarget(args: Record<string, unknown>, result: Record<string, unknown>, keys: readonly string[]): string {
+  return (
+    firstStringField(args, keys) ||
+    firstStringField(result, keys) ||
+    contextValue(args) ||
+    contextValue(result)
+  );
+}
+
+function toolSubtitle(tool: ToolCall, argsRecord: Record<string, unknown>, resultRecord: Record<string, unknown>): string {
+  // Desktop keeps the collapsed row single-line. Subtitle is only used as a
+  // tooltip / path hint for file edits — not a second visual line.
+  if (tool.name === 'write_file' || tool.name === 'edit_file' || tool.name === 'patch' || tool.name === 'read_file') {
+    return toolTarget(argsRecord, resultRecord, ['path', 'file', 'filepath', 'context', 'args_text']);
+  }
+  return '';
+}
+
+/** Desktop-style title: verb + target on one line (Read path, Ran · cmd). */
 function dynamicTitle(tool: ToolCall, args: Record<string, unknown>, result: Record<string, unknown>, fallback: string): string {
   const isPending = tool.output === undefined;
   const verb = (gerund: string, past: string) => (isPending ? gerund : past);
@@ -242,27 +222,50 @@ function dynamicTitle(tool: ToolCall, args: Record<string, unknown>, result: Rec
     return query ? `${verb('Searching', 'Searched')} “${compactPreview(query, 48)}”` : fallback;
   }
 
-  if (tool.name === 'terminal' || tool.name === 'execute_code') {
+  if (tool.name === 'terminal' || tool.name === 'execute_code' || tool.name === 'process') {
+    const command =
+      firstStringField(args, ['context', 'preview', 'args_text', 'command', 'code', 'script', 'summary']) ||
+      contextValue(args);
+    if (tool.name === 'process') {
+      return command
+        ? `${verb('Running process', 'Process finished')} · ${compactPreview(command, 100)}`
+        : verb('Running process', 'Process finished');
+    }
+    if (command) {
+      const verbText = tool.name === 'execute_code' ? verb('Running code', 'Ran code') : verb('Running', 'Ran');
+      return `${verbText} · ${compactPreview(command, 120)}`;
+    }
     return tool.name === 'execute_code' ? verb('Running code', 'Ran code') : verb('Running command', 'Ran command');
   }
 
+  if (tool.name === 'skill_view' || tool.name === 'skill_manage' || tool.name === 'skills_list') {
+    const skill =
+      firstStringField(args, ['skill', 'path', 'file_path', 'context', 'args_text', 'summary', 'name']) ||
+      contextValue(args);
+    if (skill && skill !== tool.name) {
+      return `${verb('Opening', 'Opened')} ${compactPreview(skill, 100)}`;
+    }
+    return verb('Opening skill', 'Opened skill');
+  }
+
   if (tool.name === 'read_file') {
-    const path = firstStringField(args, ['path', 'file', 'filepath']);
+    const path = toolTarget(args, result, ['path', 'file', 'filepath', 'context', 'args_text']);
     return path ? `${verb('Reading', 'Read')} ${compactPreview(path, 120)}` : fallback;
   }
 
   if (tool.name === 'write_file' || tool.name === 'edit_file' || tool.name === 'patch') {
-    const path = firstStringField(args, ['path', 'file', 'filepath']);
-    return path ? `${verb('Editing', 'Edited')} ${compactPreview(path, 120)}` : fallback;
+    const path = toolTarget(args, result, ['path', 'file', 'filepath', 'context', 'args_text']);
+    // Desktop uses basename as the primary title for file edits.
+    return path ? basename(path) : fallback;
   }
 
   if (tool.name === 'list_files') {
-    const path = firstStringField(args, ['path', 'directory', 'dir']) || contextValue(args);
+    const path = toolTarget(args, result, ['path', 'directory', 'dir', 'context', 'args_text']);
     return path ? `${verb('Listing', 'Listed')} ${compactPreview(path, 120)}` : fallback;
   }
 
   if (tool.name === 'search_files') {
-    const query = firstStringField(args, ['query', 'search_term', 'term']) || contextValue(args);
+    const query = firstStringField(args, ['query', 'search_term', 'term', 'pattern']) || contextValue(args);
     return query ? `${verb('Searching', 'Searched')} “${compactPreview(query, 48)}”` : fallback;
   }
 
@@ -272,16 +275,26 @@ function dynamicTitle(tool: ToolCall, args: Record<string, unknown>, result: Rec
 function toolDetailText(tool: ToolCall, argsRecord: Record<string, unknown>, resultRecord: Record<string, unknown>): string {
   const output = tool.output;
   if (typeof output === 'string' && output.trim()) {
-    return output.trim();
+    const text = output.trim();
+    // Don't expand a row just to show the same args blob already summarized in the title.
+    if (looksLikeJsonBlob(text) && Object.keys(resultRecord).length === 0) {
+      const onlyMeta = Object.keys(argsRecord).every((k) => ['context', 'preview', 'args_text', 'summary', 'name'].includes(k));
+      if (onlyMeta) return '';
+    }
+    return text;
   }
   const text = firstStringField(resultRecord, ['text', 'output', 'stdout', 'result', 'content', 'message']);
   if (text) return text;
-  return fallbackDetailText(argsRecord, resultRecord);
+  const fallback = fallbackDetailText(argsRecord, resultRecord);
+  if (!fallback || fallback === '{}' || fallback === '[]') return '';
+  // Args-only JSON is not useful expanded detail for compact mobile rows.
+  if (!tool.output && looksLikeJsonBlob(fallback)) return '';
+  return fallback;
 }
 
 function toolDetailLabel(toolName: string): string {
   if (toolName === 'web_search') return 'Details';
-  if (toolName === 'terminal' || toolName === 'execute_code') return 'Command output';
+  if (toolName === 'terminal' || toolName === 'execute_code' || toolName === 'process') return 'Command output';
   return 'Output';
 }
 
@@ -321,17 +334,14 @@ export function buildToolView(tool: ToolCall): ToolView {
   const status = toolStatus(tool, resultRecord);
   const baseTitle = tool.output === undefined ? meta.pending : meta.done;
   const title = dynamicTitle(tool, argsRecord, resultRecord, baseTitle);
-  const titleEnriched = title !== baseTitle;
-  const baseSubtitle = toolSubtitle(tool, argsRecord, resultRecord);
-  const keepSubtitleWithTitle = tool.name === 'terminal' || tool.name === 'execute_code';
-  const subtitle = titleEnriched && !keepSubtitleWithTitle ? '' : baseSubtitle;
+  const subtitle = toolSubtitle(tool, argsRecord, resultRecord);
 
   return {
     countLabel: toolResultCount(tool, argsRecord, resultRecord),
     detail: toolDetailText(tool, argsRecord, resultRecord),
     detailLabel: toolDetailLabel(tool.name),
     icon: meta.icon,
-    rawResult: typeof tool.output === 'string' ? tool.output : JSON.stringify(tool.output),
+    rawResult: typeof tool.output === 'string' ? tool.output : JSON.stringify(tool.output ?? ''),
     status,
     subtitle,
     title,

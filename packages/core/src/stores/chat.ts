@@ -451,22 +451,42 @@ function toolCallKey(tool: ToolCall): string {
   return tool.id || `${tool.name}:${JSON.stringify(tool.input ?? {})}`;
 }
 
-function mergeToolCallsPreservingLocalPending(historyTools: ToolCall[] | undefined, localTools: ToolCall[] | undefined): ToolCall[] | undefined {
-  const pendingLocal = (localTools ?? []).filter((tool) => tool.output === undefined);
-  if (pendingLocal.length === 0) return historyTools;
-  const merged = [...(historyTools ?? [])];
-  const keys = new Set(merged.map(toolCallKey));
-  for (const tool of pendingLocal) {
-    const key = toolCallKey(tool);
-    if (keys.has(key)) continue;
-    merged.push(tool);
-    keys.add(key);
+function mergeToolCallsPreservingLocal(historyTools: ToolCall[] | undefined, localTools: ToolCall[] | undefined): ToolCall[] | undefined {
+  // REST snapshots lag the live WS tool trail. Keep every local tool row the
+  // server has not caught up with yet — pending AND completed — otherwise a
+  // mid-turn history refresh erases tool cards until the user reopens chat.
+  if (!localTools || localTools.length === 0) return historyTools;
+  if (!historyTools || historyTools.length === 0) return localTools;
+
+  const merged = [...historyTools];
+  const indexByKey = new Map(merged.map((tool, index) => [toolCallKey(tool), index] as const));
+
+  for (const local of localTools) {
+    const key = toolCallKey(local);
+    const existingIndex = indexByKey.get(key);
+    if (existingIndex === undefined) {
+      indexByKey.set(key, merged.length);
+      merged.push(local);
+      continue;
+    }
+    const existing = merged[existingIndex];
+    if (!existing) continue;
+    // Prefer the richer of the two: keep local input/output when history is thinner.
+    merged[existingIndex] = {
+      ...existing,
+      ...local,
+      id: existing.id || local.id,
+      name: existing.name || local.name,
+      input: local.input ?? existing.input,
+      output: local.output ?? existing.output,
+    };
   }
+
   return merged;
 }
 
 function mergeHistoryMessageWithLocal(historyMessage: Message, localMessage: Message): Message {
-  const toolCalls = mergeToolCallsPreservingLocalPending(historyMessage.toolCalls, localMessage.toolCalls);
+  const toolCalls = mergeToolCallsPreservingLocal(historyMessage.toolCalls, localMessage.toolCalls);
   if (!toolCalls || toolCalls === historyMessage.toolCalls) return historyMessage;
   return { ...historyMessage, toolCalls };
 }
@@ -1767,20 +1787,28 @@ export const useChatStore = create<ChatStore>((set, get) => ({
   appendToolCall(tool) {
     set((state) => {
       const msgs = [...state.messages];
-      const last = msgs[msgs.length - 1];
-      if (last && last.role === 'assistant') {
-        const existing = (last.toolCalls ?? []).find((t) => t.id === tool.id);
-        if (existing) return { messages: msgs };
-        const tools = [...(last.toolCalls ?? []), tool];
-        // If we already had thinking, the next reasoning phase is a new block.
-        const hadThinking = Boolean(last.thinking?.trim()) || Boolean(last.thinkingParts?.length);
-        msgs[msgs.length - 1] = {
-          ...last,
-          toolCalls: tools,
-          ...(hadThinking ? { thinkingNeedsNewPart: true } : {}),
-        };
+      let last = msgs[msgs.length - 1];
+      // Live tool events can arrive before message.start, after a steer user
+      // bubble, or after a premature idle. Always attach to an assistant shell.
+      if (!last || last.role !== 'assistant') {
+        last = { id: nextAssistantMessageId(), role: 'assistant', text: '', createdAt: undefined };
+        msgs.push(last);
       }
-      const next = { messages: msgs };
+      const existing = (last.toolCalls ?? []).find((t) => t.id === tool.id);
+      if (existing) {
+        const next = { messages: msgs, streaming: true, error: undefined };
+        persistActiveSession({ ...state, ...next });
+        return next;
+      }
+      const tools = [...(last.toolCalls ?? []), tool];
+      // If we already had thinking, the next reasoning phase is a new block.
+      const hadThinking = Boolean(last.thinking?.trim()) || Boolean(last.thinkingParts?.length);
+      msgs[msgs.length - 1] = {
+        ...last,
+        toolCalls: tools,
+        ...(hadThinking ? { thinkingNeedsNewPart: true } : {}),
+      };
+      const next = { messages: msgs, streaming: true, error: undefined };
       persistActiveSession({ ...state, ...next });
       return next;
     });
@@ -1788,12 +1816,39 @@ export const useChatStore = create<ChatStore>((set, get) => ({
 
   updateToolCall(id, patch) {
     set((state) => {
+      let found = false;
       const msgs = state.messages.map((m) => {
         if (m.role !== 'assistant' || !m.toolCalls) return m;
-        const tools = m.toolCalls.map((t) => (t.id === id ? { ...t, ...patch } : t));
-        return { ...m, toolCalls: tools };
+        let touched = false;
+        const tools = m.toolCalls.map((t) => {
+          if (t.id !== id) return t;
+          touched = true;
+          found = true;
+          return { ...t, ...patch };
+        });
+        return touched ? { ...m, toolCalls: tools } : m;
       });
-      const next = { messages: msgs };
+      if (!found) {
+        // tool.complete can race ahead of tool.start over a flaky mobile link.
+        const last = msgs[msgs.length - 1];
+        const tool: ToolCall = {
+          id,
+          name: typeof patch.name === 'string' && patch.name ? patch.name : 'tool',
+          ...patch,
+        };
+        if (last?.role === 'assistant') {
+          msgs[msgs.length - 1] = { ...last, toolCalls: [...(last.toolCalls ?? []), tool] };
+        } else {
+          msgs.push({
+            id: nextAssistantMessageId(),
+            role: 'assistant',
+            text: '',
+            createdAt: undefined,
+            toolCalls: [tool],
+          });
+        }
+      }
+      const next = { messages: msgs, streaming: true, error: undefined };
       persistActiveSession({ ...state, ...next });
       return next;
     });

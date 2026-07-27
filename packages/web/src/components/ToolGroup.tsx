@@ -22,7 +22,8 @@ function ToolRow({ tool, rpc, streaming, onOpenChange }: ToolRowProps) {
   const view = useMemo(() => buildToolView(tool), [tool]);
   const isPendingTool = view.status === 'running';
   const isRunning = isPendingTool && streaming;
-  const hasDetail = Boolean(view.detail);
+  // Desktop parity: only expand when there is real detail beyond the title line.
+  const hasDetail = Boolean(view.detail && view.detail.trim() && view.detail.trim() !== view.title.trim());
   const open = expanded && hasDetail;
   const toggle = () => {
     if (!hasDetail) return;
@@ -39,20 +40,22 @@ function ToolRow({ tool, rpc, streaming, onOpenChange }: ToolRowProps) {
         disabled={!hasDetail}
         onClick={toggle}
         aria-expanded={hasDetail ? open : undefined}
+        title={view.subtitle || view.title}
       >
         <span className="hm-tool-group__row-icon">
-          <Icon name={view.icon as import('./Icon').IconName} size={14} />
+          {isRunning ? (
+            <span className="hm-tool-group__row-running" aria-label="running" />
+          ) : (
+            <Icon name={view.icon as import('./Icon').IconName} size={14} />
+          )}
         </span>
-        <span className="hm-tool-group__row-title">{view.title}</span>
-        {view.subtitle && (
-          <>
-            <span className="hm-tool-group__row-dot">·</span>
-            <span className="hm-tool-group__row-target">{truncate(view.subtitle, 90)}</span>
-          </>
-        )}
-        {isRunning && <span className="hm-tool-group__row-running" aria-label="running" />}
+        <span className="hm-tool-group__row-title">{truncate(view.title, 140)}</span>
         {view.countLabel && <span className="hm-tool-group__row-count">{view.countLabel}</span>}
-        {hasDetail && <span className={`hm-tool-group__row-chevron${open ? ' hm-tool-group__row-chevron--open' : ''}`}><Icon name="chevR" size={12} /></span>}
+        {hasDetail && (
+          <span className={`hm-tool-group__row-chevron${open ? ' hm-tool-group__row-chevron--open' : ''}`}>
+            <Icon name="chevR" size={12} />
+          </span>
+        )}
       </button>
 
       {open && view.detail && (

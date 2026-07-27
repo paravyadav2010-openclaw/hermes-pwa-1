@@ -6,7 +6,7 @@ import type { RpcClient } from '@hermes-pwa/core';
 const rpcMock = { request: vi.fn(), onFrame: vi.fn(), events: new EventTarget() } as unknown as RpcClient;
 
 describe('ToolGroup', () => {
-  it('renders finished tools as individual compact rows and expands row detail', () => {
+  it('renders finished tools as single-line desktop-style titles and expands detail', () => {
     const { container } = render(
       <ToolGroup
         rpc={rpcMock}
@@ -14,8 +14,9 @@ describe('ToolGroup', () => {
       />,
     );
     expect(screen.queryByText('Tool actions')).not.toBeInTheDocument();
-    const row = screen.getByRole('button', { name: /Ran command.*pytest -k reconnect/i });
+    const row = screen.getByRole('button', { name: /Ran · pytest -k reconnect/i });
     expect(row).toHaveAttribute('aria-expanded', 'false');
+    expect(container.querySelector('.hm-tool-group__row-main')).toBeNull();
 
     fireEvent.click(row);
     expect(row).toHaveAttribute('aria-expanded', 'true');
@@ -24,15 +25,29 @@ describe('ToolGroup', () => {
 
   it('auto-opens while streaming with a running tool', () => {
     render(<ToolGroup rpc={rpcMock} tools={[{ id: 't1', name: 'search_files', input: { path: 'src' } }]} streaming />);
-    expect(screen.getByText('Searching files')).toBeInTheDocument();
+    expect(screen.getByText(/Searching/i)).toBeInTheDocument();
   });
 
-  it('expands a tool row to show output', () => {
+  it('embeds read_file path in the single-line title', () => {
     render(
-      <ToolGroup rpc={rpcMock} tools={[{ id: 't1', name: 'terminal', input: { command: 'ls' }, output: 'file.txt' }]} />,
+      <ToolGroup
+        rpc={rpcMock}
+        tools={[{ id: 't1', name: 'read_file', input: { path: '/tmp/example.ts' }, output: 'export const x = 1' }]}
+      />,
     );
-    fireEvent.click(screen.getByRole('button', { name: /Ran command.*ls/i }));
-    expect(screen.getAllByText('file.txt').length).toBeGreaterThanOrEqual(1);
+    expect(screen.getByRole('button', { name: /Read \/tmp\/example\.ts/i })).toBeInTheDocument();
+  });
+
+  it('keeps terminal commands in the title and output behind the disclosure', () => {
+    render(
+      <ToolGroup
+        rpc={rpcMock}
+        tools={[{ id: 't-command', name: 'terminal', input: { command: 'git status --short' }, output: 'M app.tsx' }]}
+      />,
+    );
+
+    expect(screen.getByRole('button', { name: /Ran · git status --short/i })).toBeInTheDocument();
+    expect(screen.queryByText('M app.tsx')).not.toBeInTheDocument();
   });
 
   it('removes the compact run constraint when a row is expanded', () => {
@@ -48,21 +63,9 @@ describe('ToolGroup', () => {
     );
     expect(container.querySelector('.hm-tool-group')).toHaveClass('hm-tool-group--bounded');
 
-    fireEvent.click(screen.getByRole('button', { name: /Ran command.*one/i }));
+    fireEvent.click(screen.getByRole('button', { name: /Ran · one/i }));
 
     expect(container.querySelector('.hm-tool-group')).not.toHaveClass('hm-tool-group--bounded');
     expect(container.querySelector('.hm-tool-group__row-output')).toHaveTextContent('one result');
-  });
-
-  it('keeps terminal commands in the secondary line and output behind the disclosure', () => {
-    render(
-      <ToolGroup
-        rpc={rpcMock}
-        tools={[{ id: 't-command', name: 'terminal', input: { command: 'git status --short' }, output: 'M app.tsx' }]}
-      />,
-    );
-
-    expect(screen.getByRole('button', { name: /Ran command.*git status --short/i })).toBeInTheDocument();
-    expect(screen.queryByText('M app.tsx')).not.toBeInTheDocument();
   });
 });

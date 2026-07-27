@@ -961,7 +961,7 @@ describe('Chat', () => {
           role: 'assistant',
           text: '',
           createdAt: undefined,
-          toolCalls: [{ id: 'tool-1', name: 'terminal', output: 'whoami=stasstep' }],
+          toolCalls: [{ id: 'tool-1', name: 'terminal', input: { command: 'whoami' }, output: 'whoami=stasstep' }],
         },
       ],
     });
@@ -969,8 +969,30 @@ describe('Chat', () => {
     render(<Chat rpc={rpcMock} rest={restMock} />);
 
     expect(screen.queryByText('Tool actions')).not.toBeInTheDocument();
-    expect(screen.getByText(/Ran command/i)).toBeInTheDocument();
-    expect(screen.getByText(/whoami=stasstep/i)).toBeInTheDocument();
+    expect(screen.getByText(/Ran · whoami/i)).toBeInTheDocument();
+  });
+
+  it('renders a live tool.start row immediately without leaving chat', async () => {
+    core.useConnectionStore.setState({ state: 'reconnecting', error: undefined });
+    core.useChatStore.setState({
+      sessionId: 's-1',
+      streaming: true,
+      messages: [{ id: 'a-1', role: 'assistant', text: '', createdAt: undefined }],
+    });
+    render(<Chat rpc={rpcMock} rest={restMock} />);
+
+    rpcMock.events.dispatchEvent({
+      type: 'tool.start',
+      sessionId: 's-1',
+      payload: {
+        tool_id: 'skill-1',
+        name: 'skill_view',
+        context: 'handoff',
+      },
+    });
+
+    await waitFor(() => expect(screen.getByText(/Opening handoff/i)).toBeInTheDocument());
+    expect(core.useChatStore.getState().messages[0]?.toolCalls?.[0]?.name).toBe('skill_view');
   });
 
   it('renders approval inline on the running terminal tool row and sends canonical choice', async () => {

@@ -11,7 +11,11 @@ interface ThinkingDisclosureProps {
 }
 
 export function ThinkingDisclosure({ text, streaming, label = 'Thinking' }: ThinkingDisclosureProps) {
-  // Open while streaming; collapse when the turn finishes (same pattern as Tool actions).
+  const cleaned = text.trim();
+  // Desktop drops empty reasoning blocks entirely — no blank "Thinking" row.
+  if (!cleaned) return null;
+
+  // Open while streaming; collapse when the turn finishes.
   const [open, setOpen] = useState(Boolean(streaming));
 
   useEffect(() => {
@@ -31,7 +35,7 @@ export function ThinkingDisclosure({ text, streaming, label = 'Thinking' }: Thin
       </button>
       {open && (
         <div className="hm-thinking__body">
-          <ReactMarkdown remarkPlugins={[remarkGfm]} components={MARKDOWN_COMPONENTS}>{text}</ReactMarkdown>
+          <ReactMarkdown remarkPlugins={[remarkGfm]} components={MARKDOWN_COMPONENTS}>{cleaned}</ReactMarkdown>
         </div>
       )}
     </div>

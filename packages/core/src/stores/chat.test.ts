@@ -1422,10 +1422,47 @@ describe('useChatStore', () => {
     expect(useChatStore.getState().messages[0]?.text).toBe('hi');
   });
 
-  it('appendToolCall ignores non-assistant last message', () => {
-    useChatStore.setState({ messages: [{ id: '1', role: 'user', text: 'hi', createdAt: undefined }] });
+  it('appendToolCall creates an assistant shell when the last message is a user/steer bubble', () => {
+    useChatStore.setState({ messages: [{ id: '1', role: 'user', text: 'hi', createdAt: undefined }], streaming: false });
     useChatStore.getState().appendToolCall({ id: 't-1', name: 'search' });
-    expect(useChatStore.getState().messages[0]?.toolCalls).toBeUndefined();
+    const messages = useChatStore.getState().messages;
+    expect(messages).toHaveLength(2);
+    expect(messages[1]?.role).toBe('assistant');
+    expect(messages[1]?.toolCalls).toEqual([{ id: 't-1', name: 'search' }]);
+    expect(useChatStore.getState().streaming).toBe(true);
+  });
+
+  it('keeps completed local tool rows when a lagging REST snapshot omits them', async () => {
+    useChatStore.setState({
+      sessionId: 'live-1',
+      storedSessionId: 'stored-1',
+      streaming: false,
+      messages: [
+        { id: 'u-local', role: 'user', text: 'Open skill', createdAt: undefined },
+        {
+          id: 'a-local',
+          role: 'assistant',
+          text: 'Done.',
+          createdAt: undefined,
+          toolCalls: [
+            { id: 'tool-skill', name: 'skill_view', input: { context: 'handoff' }, output: 'skill body' },
+          ],
+        },
+      ],
+    });
+    vi.mocked(restMock.sessionMessages).mockResolvedValue({
+      messages: [
+        { id: 'u-db', role: 'user', text: 'Open skill' },
+        { id: 'a-db', role: 'assistant', text: 'Done.' },
+      ],
+    });
+
+    await useChatStore.getState().loadHistory(restMock, 'live-1');
+
+    const messages = useChatStore.getState().messages;
+    expect(messages[1]?.toolCalls).toEqual([
+      { id: 'tool-skill', name: 'skill_view', input: { context: 'handoff' }, output: 'skill body' },
+    ]);
   });
 
   it('keeps an accepted steer prompt visible in the active transcript', async () => {

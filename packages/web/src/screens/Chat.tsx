@@ -315,8 +315,13 @@ export function Chat({ rpc, rest, onNavigate }: ChatProps) {
     const extractToolInput = (payload: Record<string, unknown> | undefined): Record<string, unknown> | undefined => {
       if (!payload) return undefined;
       const base: Record<string, unknown> = {};
+      // Gateway live tool.start ships context/preview/args_text — not full args.
       if (typeof payload.context === 'string' && payload.context.trim()) base.context = payload.context.trim();
       if (typeof payload.preview === 'string' && payload.preview.trim()) base.preview = payload.preview.trim();
+      if (typeof payload.args_text === 'string' && payload.args_text.trim()) base.args_text = payload.args_text.trim();
+      if (typeof payload.summary === 'string' && payload.summary.trim()) base.summary = payload.summary.trim();
+      // Never store the tool's own function name as input.name — that shadows
+      // the skill/path context used for the compact subtitle.
       const direct = parseMaybeObject(payload.args ?? payload.arguments);
       if (Object.keys(direct).length > 0) return { ...base, ...direct };
       const input = parseMaybeObject(payload.input);
@@ -446,10 +451,19 @@ export function Chat({ rpc, rest, onNavigate }: ChatProps) {
         useSessionsStore.getState().applyTitle(durableId, title, { force: !isPlaceholderSessionTitle(title) });
       }
       if (payload?.running === false) {
-        useChatStore.getState().markIdle();
-        setLiveStatus({ text: '' });
-        void refreshActiveHistory();
-        drainQueuedPrompt();
+        const current = useChatStore.getState();
+        const last = current.messages[current.messages.length - 1];
+        const hasOpenTools = Boolean(
+          last?.role === 'assistant' && last.toolCalls?.some((tool) => tool.output === undefined),
+        );
+        // Don't idle+refresh while a live tool trail is still open — REST lags WS
+        // and a premature snapshot used to blank tool rows until chat remount.
+        if (!hasOpenTools) {
+          useChatStore.getState().markIdle();
+          setLiveStatus({ text: '' });
+          void refreshActiveHistory();
+          drainQueuedPrompt();
+        }
       }
     };
 
