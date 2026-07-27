@@ -338,7 +338,6 @@ export function AssistantTurn({
   const textOnly = stripImages(preprocessed);
   const hasText = Boolean(textOnly || imageUrls.length > 0 || videoUrls.length > 0);
 
-  const hasRunningTools = active && otherTools.some((tool) => tool.output === undefined);
   // Live thinking stays OUTSIDE the collapsible group and always expanded while
   // the turn is active and no final reply text yet (tools may still be running).
   const thinkingIsLive = active && !hasText && thinkingParts.length > 0;
