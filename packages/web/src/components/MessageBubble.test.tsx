@@ -76,9 +76,9 @@ describe('MessageBubble', () => {
 
     const children = Array.from(container.querySelector('.hm-message__actions')!.children);
     expect(children[0]).toHaveClass('hm-thinking--live');
-    expect(children[1]).toHaveAttribute('data-hm-tool-standalone', '1');
-    expect(children[2]).toHaveClass('hm-thinking-group--collapsed');
-    expect(children[3]).toHaveClass('hm-tool-group--collapsed');
+    expect(children[1]).toHaveClass('hm-thinking-group--collapsed');
+    expect(children[2]).toHaveClass('hm-tool-group--collapsed');
+    expect(children[3]).toHaveAttribute('data-hm-tool-standalone', '1');
   });
 
   it('keeps combined assistant prose under thinking and tools for a multi-row turn', () => {
