@@ -3,6 +3,7 @@ import type { RpcClient, ToolCall } from '@hermes-pwa/core';
 import { Icon } from './Icon';
 import { ApprovalInline } from './ApprovalInline';
 import { buildToolView, truncate } from '../lib/toolView';
+import { copyToClipboard } from './MessageBubble.helpers';
 
 interface ToolGroupProps {
   tools: ToolCall[];
@@ -24,6 +25,7 @@ function ToolRow({ tool, rpc, streaming, onOpenChange }: ToolRowProps) {
   const hasDetail = Boolean(view.detail && view.detail.trim() && view.detail.trim() !== view.title.trim());
   // Active/pending tools start expanded when they have detail; settled rows stay collapsed.
   const [expanded, setExpanded] = useState(Boolean(isPendingTool && hasDetail));
+  const [copied, setCopied] = useState(false);
   const open = expanded && hasDetail;
 
   useEffect(() => {
@@ -40,6 +42,16 @@ function ToolRow({ tool, rpc, streaming, onOpenChange }: ToolRowProps) {
     const next = !open;
     setExpanded(next);
     onOpenChange?.(tool.id, next);
+  };
+
+  const copyDetail = async (e: { stopPropagation: () => void; preventDefault: () => void }) => {
+    e.stopPropagation();
+    e.preventDefault();
+    if (!view.detail) return;
+    const ok = await copyToClipboard(view.detail);
+    if (!ok) return;
+    setCopied(true);
+    window.setTimeout(() => setCopied(false), 1500);
   };
 
   return (
@@ -70,7 +82,18 @@ function ToolRow({ tool, rpc, streaming, onOpenChange }: ToolRowProps) {
 
       {open && view.detail && (
         <div className="hm-tool-group__row-detail">
-          {view.detailLabel && <div className="hm-tool-group__row-detail-label">{view.detailLabel}</div>}
+          <div className="hm-tool-group__row-detail-bar">
+            {view.detailLabel && <div className="hm-tool-group__row-detail-label">{view.detailLabel}</div>}
+            <button
+              type="button"
+              className={`hm-tool-group__row-copy${copied ? ' hm-tool-group__row-copy--done' : ''}`}
+              onClick={(e) => void copyDetail(e)}
+              aria-label={copied ? 'Copied' : 'Copy output'}
+              title={copied ? 'Copied' : 'Copy'}
+            >
+              {copied ? 'Copied' : 'Copy'}
+            </button>
+          </div>
           <pre className="hm-tool-group__row-output">{view.detail}</pre>
         </div>
       )}

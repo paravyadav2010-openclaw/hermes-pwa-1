@@ -241,31 +241,143 @@ function Lightbox({ images, startIndex, onClose }: { images: GalleryImage[]; sta
   );
 }
 
+/* ── Clipboard (iOS-safe) ──────────────────────────────────────────── */
+
+export function nodeToPlainText(node: ReactNode): string {
+  if (node == null || typeof node === 'boolean') return '';
+  if (typeof node === 'string' || typeof node === 'number') return String(node);
+  if (Array.isArray(node)) return node.map(nodeToPlainText).join('');
+  if (typeof node === 'object' && node !== null && 'props' in node) {
+    const el = node as { props?: { children?: ReactNode } };
+    return nodeToPlainText(el.props?.children);
+  }
+  return '';
+}
+
+export async function copyToClipboard(text: string): Promise<boolean> {
+  const value = text.replace(/\u0000/g, '');
+  if (!value) return false;
+  try {
+    if (typeof navigator !== 'undefined' && navigator.clipboard?.writeText) {
+      await navigator.clipboard.writeText(value);
+      return true;
+    }
+  } catch {
+    // fall through to execCommand
+  }
+  try {
+    if (typeof document === 'undefined') return false;
+    const ta = document.createElement('textarea');
+    ta.value = value;
+    ta.setAttribute('readonly', '');
+    ta.style.position = 'fixed';
+    ta.style.top = '0';
+    ta.style.left = '-9999px';
+    ta.style.opacity = '0';
+    document.body.appendChild(ta);
+    ta.focus();
+    ta.select();
+    ta.setSelectionRange(0, value.length);
+    const ok = document.execCommand('copy');
+    document.body.removeChild(ta);
+    return ok;
+  } catch {
+    return false;
+  }
+}
+
 /* ── Code block ────────────────────────────────────────────────────── */
 
 function CodeBlock({ language, children }: { language?: string; children?: ReactNode }) {
   const [copied, setCopied] = useState(false);
+  const text = useMemo(() => nodeToPlainText(children).replace(/\n$/, ''), [children]);
+  const lang = (language || 'code').trim() || 'code';
 
-  function handleCopy() {
-    const text = typeof children === 'string' ? children : '';
-    navigator.clipboard.writeText(text).then(() => {
-      setCopied(true);
-      setTimeout(() => setCopied(false), 2000);
-    }).catch(() => {});
+  async function handleCopy(e?: { stopPropagation?: () => void }) {
+    e?.stopPropagation?.();
+    const ok = await copyToClipboard(text);
+    if (!ok) return;
+    setCopied(true);
+    window.setTimeout(() => setCopied(false), 1800);
   }
 
-  return createElement('div', { className: 'hm-code-block' },
-    createElement('div', { className: 'hm-code-block__header' },
-      createElement('span', { className: 'hm-code-block__lang' }, language || 'code'),
-      createElement('button', {
-        type: 'button',
-        className: 'hm-code-block__copy',
-        onClick: handleCopy,
-        'aria-label': copied ? 'Copied' : 'Copy code',
-      }, copied ? 'Copied' : 'Copy'),
+  return createElement(
+    'div',
+    { className: `hm-code-block${copied ? ' hm-code-block--copied' : ''}` },
+    createElement(
+      'div',
+      { className: 'hm-code-block__header' },
+      createElement('span', { className: 'hm-code-block__lang' }, lang),
+      createElement(
+        'button',
+        {
+          type: 'button',
+          className: `hm-code-block__copy${copied ? ' hm-code-block__copy--done' : ''}`,
+          onClick: () => void handleCopy(),
+          'aria-label': copied ? 'Copied' : 'Copy code',
+          title: copied ? 'Copied' : 'Copy',
+        },
+        copied ? 'Copied' : 'Copy',
+      ),
     ),
-    createElement('pre', { className: 'hm-code-block__pre' },
+    createElement(
+      'pre',
+      {
+        className: 'hm-code-block__pre',
+        onDoubleClick: () => void handleCopy(),
+      },
       createElement('code', null, children),
+    ),
+  );
+}
+
+/** Inline path / prompt / short code — tap once to copy. */
+function InlineCode({ children, ...props }: HTMLAttributes<HTMLElement>) {
+  const [copied, setCopied] = useState(false);
+  const text = useMemo(() => nodeToPlainText(children).replace(/\n$/, ''), [children]);
+  const isPathLike = useMemo(() => {
+    if (text.length < 2) return false;
+    if (/^[~./]/.test(text)) return true;
+    if (text.includes('/') || text.includes('\\')) return true;
+    if (/^[A-Za-z]:\\/.test(text)) return true;
+    if (text.startsWith('http://') || text.startsWith('https://') || text.startsWith('file:')) return true;
+    // Long opaque tokens (hashes, ids) are worth one-tap copy too.
+    if (text.length > 24 && !/\s/.test(text)) return true;
+    return false;
+  }, [text]);
+
+  async function handleCopy(e: { preventDefault: () => void; stopPropagation: () => void }) {
+    e.preventDefault();
+    e.stopPropagation();
+    if (!text) return;
+    const ok = await copyToClipboard(text);
+    if (!ok) return;
+    setCopied(true);
+    window.setTimeout(() => setCopied(false), 1500);
+  }
+
+  return createElement(
+    'button',
+    {
+      ...props,
+      type: 'button',
+      className: [
+        'hm-inline-code',
+        'hm-copyable',
+        isPathLike ? 'hm-copyable--path' : '',
+        copied ? 'hm-copyable--done' : '',
+      ]
+        .filter(Boolean)
+        .join(' '),
+      onClick: handleCopy,
+      title: copied ? 'Copied' : 'Tap to copy',
+      'aria-label': copied ? 'Copied' : `Copy ${text}`,
+    },
+    createElement('span', { className: 'hm-copyable__text' }, children),
+    createElement(
+      'span',
+      { className: 'hm-copyable__badge', 'aria-hidden': true },
+      copied ? 'Copied' : 'Copy',
     ),
   );
 }
@@ -384,14 +496,15 @@ export const MARKDOWN_COMPONENTS = {
       children,
     ),
   code: ({ className, children, ...props }: HTMLAttributes<HTMLElement>) => {
+    // Fenced blocks pass language-* className on the inner <code>; pre wraps those.
     if (!className) {
-      return createElement('code', { ...props, className: 'hm-inline-code' }, children);
+      return createElement(InlineCode, { ...props }, children);
     }
     return createElement('code', { ...props, className }, children);
   },
-  pre: ({ children, ...props }: HTMLAttributes<HTMLPreElement>) => {
+  pre: ({ children }: HTMLAttributes<HTMLPreElement>) => {
     const codeEl = children as ReactNode & { props?: { className?: string; children?: ReactNode } };
-    const lang = codeEl?.props?.className?.replace('language-', '') ?? '';
+    const lang = codeEl?.props?.className?.replace(/^language-/, '') ?? '';
     const code = codeEl?.props?.children ?? children;
     return createElement(CodeBlock, { language: lang }, code);
   },

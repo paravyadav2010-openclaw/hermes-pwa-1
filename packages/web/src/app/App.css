@@ -2904,24 +2904,79 @@ a {
   margin: 0.25em 0;
 }
 
-/* Long path / hash chips: soft cloneable pills that wrap cleanly, not broken slabs */
+/* Long path / hash chips: soft cloneable pills that wrap cleanly + tap-to-copy */
 .hm-message--assistant .hm-inline-code,
-.hm-message--assistant code:not(pre code) {
-  display: inline;
+.hm-message--assistant code:not(pre code),
+.hm-message--assistant .hm-copyable {
+  display: inline-flex;
+  align-items: baseline;
+  gap: 0.35em;
   max-width: 100%;
-  padding: 0.12em 0.42em;
-  border-radius: 6px;
+  margin: 0 0.05em;
+  padding: 0.14em 0.42em;
+  border-radius: 7px;
   border: 1px solid color-mix(in srgb, var(--hm-color-border) 88%, transparent);
   background: color-mix(in srgb, var(--hm-color-surface-2) 92%, #000 8%);
   color: color-mix(in srgb, var(--hm-color-text) 92%, var(--hm-color-accent) 8%);
   font-family: var(--hm-font-mono);
   font-size: 0.84em;
-  line-height: 1.55;
+  line-height: 1.5;
   white-space: normal;
   overflow-wrap: anywhere;
   word-break: break-word;
   box-decoration-break: clone;
   -webkit-box-decoration-break: clone;
+  vertical-align: baseline;
+  cursor: pointer;
+  -webkit-tap-highlight-color: transparent;
+  text-align: left;
+}
+
+button.hm-copyable {
+  appearance: none;
+  font: inherit;
+}
+
+.hm-message--assistant .hm-copyable:hover,
+.hm-message--assistant .hm-copyable:focus-visible {
+  border-color: color-mix(in srgb, var(--hm-color-accent) 45%, var(--hm-color-border));
+  background: color-mix(in srgb, var(--hm-color-surface) 70%, var(--hm-color-accent-weak) 30%);
+  color: var(--hm-color-text);
+}
+
+.hm-message--assistant .hm-copyable--done {
+  border-color: color-mix(in srgb, var(--hm-color-success) 50%, var(--hm-color-border));
+  background: color-mix(in srgb, var(--hm-color-success-bg) 70%, var(--hm-color-surface-2));
+}
+
+.hm-copyable__text {
+  min-width: 0;
+  flex: 1 1 auto;
+}
+
+.hm-copyable__badge {
+  flex: 0 0 auto;
+  margin-left: 0.15em;
+  padding: 0.05em 0.35em;
+  border-radius: 999px;
+  background: color-mix(in srgb, var(--hm-color-surface) 75%, transparent);
+  color: var(--hm-color-text-muted);
+  font-family: var(--hm-font-sans);
+  font-size: 0.78em;
+  font-weight: 650;
+  letter-spacing: 0.02em;
+  line-height: 1.2;
+  white-space: nowrap;
+  opacity: 0.85;
+}
+
+.hm-copyable--done .hm-copyable__badge {
+  color: var(--hm-color-success);
+  opacity: 1;
+}
+
+.hm-copyable--path {
+  border-color: color-mix(in srgb, var(--hm-color-accent) 28%, var(--hm-color-border));
 }
 
 .hm-message--assistant .hm-code-block {
@@ -2937,7 +2992,7 @@ a {
   align-items: center;
   justify-content: space-between;
   gap: 8px;
-  padding: 7px 10px;
+  padding: 8px 10px;
   border-bottom: 1px solid color-mix(in srgb, var(--hm-color-border) 90%, transparent);
   background: color-mix(in srgb, var(--hm-color-surface) 70%, transparent);
 }
@@ -2952,21 +3007,71 @@ a {
 
 .hm-message--assistant .hm-code-block__copy {
   appearance: none;
-  border: 0;
-  background: transparent;
-  color: var(--hm-color-text-muted);
+  min-height: 28px;
+  padding: 4px 10px;
+  border: 1px solid color-mix(in srgb, var(--hm-color-border) 90%, transparent);
+  border-radius: 999px;
+  background: color-mix(in srgb, var(--hm-color-surface-2) 80%, transparent);
+  color: var(--hm-color-text);
   font: inherit;
-  font-size: 11px;
-  font-weight: 600;
+  font-size: 12px;
+  font-weight: 650;
   cursor: pointer;
-  padding: 2px 6px;
-  border-radius: 6px;
+  -webkit-tap-highlight-color: transparent;
 }
 
 .hm-message--assistant .hm-code-block__copy:hover,
 .hm-message--assistant .hm-code-block__copy:focus-visible {
-  background: color-mix(in srgb, var(--hm-color-surface-2) 80%, transparent);
+  background: color-mix(in srgb, var(--hm-color-accent-weak) 55%, var(--hm-color-surface));
+  border-color: color-mix(in srgb, var(--hm-color-accent) 40%, var(--hm-color-border));
   color: var(--hm-color-text);
+}
+
+.hm-message--assistant .hm-code-block__copy--done {
+  border-color: color-mix(in srgb, var(--hm-color-success) 45%, var(--hm-color-border));
+  color: var(--hm-color-success);
+}
+
+.hm-tool-group__row-detail-bar {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  padding: 5px 7px 0;
+}
+
+.hm-tool-group__row-detail-label {
+  padding: 0;
+  font-size: 9px;
+  text-transform: uppercase;
+  letter-spacing: 0.06em;
+  color: var(--hm-color-text-muted);
+}
+
+.hm-tool-group__row-copy {
+  appearance: none;
+  margin-left: auto;
+  padding: 3px 8px;
+  border: 1px solid color-mix(in srgb, var(--hm-color-border) 90%, transparent);
+  border-radius: 999px;
+  background: color-mix(in srgb, var(--hm-color-surface) 80%, transparent);
+  color: var(--hm-color-text-muted);
+  font: inherit;
+  font-size: 10px;
+  font-weight: 650;
+  cursor: pointer;
+  -webkit-tap-highlight-color: transparent;
+}
+
+.hm-tool-group__row-copy:hover,
+.hm-tool-group__row-copy:focus-visible {
+  color: var(--hm-color-text);
+  border-color: color-mix(in srgb, var(--hm-color-accent) 35%, var(--hm-color-border));
+}
+
+.hm-tool-group__row-copy--done {
+  color: var(--hm-color-success);
+  border-color: color-mix(in srgb, var(--hm-color-success) 40%, var(--hm-color-border));
 }
 
 .hm-message--assistant .hm-code-block__pre,
