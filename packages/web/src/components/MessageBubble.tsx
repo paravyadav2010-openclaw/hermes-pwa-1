@@ -132,7 +132,19 @@ async function copyText(text: string): Promise<boolean> {
   }
 }
 
-function MessageMetaBar({ text, createdAt, show }: { text: string; createdAt: number | undefined; show: boolean }) {
+function MessageMetaBar({
+  text,
+  createdAt,
+  show,
+  onPin,
+  pinned,
+}: {
+  text: string;
+  createdAt: number | undefined;
+  show: boolean;
+  onPin?: (() => void) | undefined;
+  pinned?: boolean | undefined;
+}) {
   const [copied, setCopied] = useState(false);
 
   useEffect(() => {
@@ -164,6 +176,17 @@ function MessageMetaBar({ text, createdAt, show }: { text: string; createdAt: nu
       >
         <Icon name={copied ? 'check' : 'copy'} size={14} />
       </button>
+      {onPin ? (
+        <button
+          type="button"
+          className={`hm-message__pin${pinned ? ' hm-message__pin--active' : ''}`}
+          onClick={onPin}
+          aria-label={pinned ? 'Unpin message' : 'Pin message'}
+          title={pinned ? 'Unpin message' : 'Pin message'}
+        >
+          <Icon name="pin" size={14} />
+        </button>
+      ) : null}
     </div>
   );
 }
@@ -218,7 +241,7 @@ function recoveredApprovalTool(
   };
 }
 
-function MessageBubbleView({ message, rpc, isLast, streaming, liveStatus, liveFace, pendingApprovals, activeSessionIds }: MessageBubbleProps) {
+function MessageBubbleView({ message, rpc, isLast, streaming, liveStatus, liveFace, pendingApprovals, activeSessionIds, onPinMessage, pinnedMessageIds }: MessageBubbleProps) {
   const [userCopyFeedback, setUserCopyFeedback] = useState(false);
 
   useEffect(() => {
@@ -240,6 +263,7 @@ function MessageBubbleView({ message, rpc, isLast, streaming, liveStatus, liveFa
     const textOnly = stripImages(preprocessed);
     return (
       <div
+        id={`hm-message-${message.id}`}
         className={`hm-user-message${isSteer ? ' hm-user-message--steer' : ''}`}
         onDoubleClick={() => {
           void copyText(message.text).then((copied) => {
@@ -271,7 +295,13 @@ function MessageBubbleView({ message, rpc, isLast, streaming, liveStatus, liveFa
           </ImageGalleryProvider>
         )}
         </div>
-        <MessageMetaBar text={message.text} createdAt={message.createdAt} show={Boolean(message.text.trim())} />
+        <MessageMetaBar
+          text={message.text}
+          createdAt={message.createdAt}
+          show={Boolean(message.text.trim())}
+          onPin={message.text.trim() ? () => onPinMessage?.(message) : undefined}
+          pinned={pinnedMessageIds?.includes(message.id)}
+        />
         {userCopyFeedback && <span className="hm-user-message__copy-feedback" role="status">Copied</span>}
       </div>
     );
@@ -288,6 +318,8 @@ function MessageBubbleView({ message, rpc, isLast, streaming, liveStatus, liveFa
       liveFace={liveFace}
       pendingApprovals={pendingApprovals}
       activeSessionIds={activeSessionIds}
+      onPinMessage={onPinMessage}
+      pinnedMessageIds={pinnedMessageIds}
     />
   );
 }
@@ -301,6 +333,8 @@ export interface AssistantTurnProps {
   liveFace?: string | undefined;
   pendingApprovals?: Approval[] | undefined;
   activeSessionIds?: string[] | undefined;
+  onPinMessage?: ((message: Message) => void) | undefined;
+  pinnedMessageIds?: string[] | undefined;
 }
 
 /**
@@ -316,6 +350,8 @@ export function AssistantTurn({
   liveFace,
   pendingApprovals,
   activeSessionIds,
+  onPinMessage,
+  pinnedMessageIds,
 }: AssistantTurnProps) {
   const active = Boolean(streaming && isLast !== false);
   const lastMessage = messages[messages.length - 1];
@@ -378,7 +414,7 @@ export function AssistantTurn({
   const statusFace = liveFace?.trim();
 
   return (
-    <div className="hm-message hm-message--assistant hm-message--reveal hm-assistant-turn">
+    <div id={lastMessage ? `hm-message-${lastMessage.id}` : undefined} className="hm-message hm-message--assistant hm-message--reveal hm-assistant-turn">
       {showLiveStatus && (
         <span className="hm-message__status" role="status" aria-live="polite">
           {statusFace ? <span className="hm-message__status-face" aria-hidden="true">{statusFace}</span> : null}
@@ -458,6 +494,8 @@ export function AssistantTurn({
         text={combinedText}
         createdAt={lastMessage?.createdAt}
         show={!active && Boolean(combinedText.trim())}
+        onPin={lastMessage && combinedText.trim() ? () => onPinMessage?.(lastMessage) : undefined}
+        pinned={Boolean(lastMessage && pinnedMessageIds?.includes(lastMessage.id))}
       />
     </div>
   );

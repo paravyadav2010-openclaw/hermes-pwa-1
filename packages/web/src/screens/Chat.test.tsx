@@ -62,6 +62,35 @@ describe('Chat', () => {
     expect(screen.getByText(/Start a conversation/i)).toBeInTheDocument();
   });
 
+  it('pins multiple messages for the durable chat and unpins one independently', async () => {
+    core.useConnectionStore.setState({ state: 'reconnecting', error: undefined });
+    core.useChatStore.setState({
+      sessionId: 'live-1',
+      storedSessionId: 'stored-1',
+      streaming: false,
+      messages: [
+        { id: 'message-1', role: 'user', text: 'Keep this important answer nearby', createdAt: undefined },
+        { id: 'message-2', role: 'user', text: 'Keep this second answer nearby too', createdAt: undefined },
+      ],
+    });
+    render(<Chat rpc={rpcMock} rest={restMock} />);
+
+    const pinButtons = screen.getAllByRole('button', { name: 'Pin message' });
+    fireEvent.click(pinButtons[0]!);
+    fireEvent.click(pinButtons[1]!);
+    const pinned = screen.getAllByRole('region', { name: 'Pinned message' });
+    expect(pinned).toHaveLength(2);
+    expect(pinned[0]).toHaveTextContent('Keep this important answer nearby');
+    expect(pinned[1]).toHaveTextContent('Keep this second answer nearby too');
+    expect(window.localStorage.getItem('hermes-pwa.pinnedMessage.v1:stored-1')).toContain('message-1');
+    expect(window.localStorage.getItem('hermes-pwa.pinnedMessage.v1:stored-1')).toContain('message-2');
+
+    fireEvent.click(screen.getAllByRole('button', { name: 'Unpin message' })[0]!);
+    await waitFor(() => expect(screen.getAllByRole('region', { name: 'Pinned message' })).toHaveLength(1));
+    expect(window.localStorage.getItem('hermes-pwa.pinnedMessage.v1:stored-1')).not.toContain('message-1');
+    expect(window.localStorage.getItem('hermes-pwa.pinnedMessage.v1:stored-1')).toContain('message-2');
+  });
+
   it('does not seed an empty chat from a session-tagged event', () => {
     render(<Chat rpc={rpcMock} rest={restMock} />);
 

@@ -42,6 +42,7 @@ export type IconName =
   | 'clipboard'
   | 'camera'
   | 'photos'
+  | 'pin'
   | 'more';
 
 interface IconProps extends Omit<SVGProps<SVGSVGElement>, 'ref'> {
@@ -158,6 +159,7 @@ const ICONS: Record<IconName, IconPart[]> = {
     ['rect', { x: 7, y: 3, width: 14, height: 14, rx: 2 }],
     'm9.5 14 2.2-2.2 2.1 2.1 2.2-2.2 2 2',
   ],
+  pin: ['M8 4h8', 'M9 4v5l-3 3v2h12v-2l-3-3V4', 'M12 14v6'],
   more: [
     ['circle', { cx: 12, cy: 5, r: 1.4 }],
     ['circle', { cx: 12, cy: 12, r: 1.4 }],

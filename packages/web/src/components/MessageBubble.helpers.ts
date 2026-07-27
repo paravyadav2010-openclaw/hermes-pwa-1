@@ -27,6 +27,8 @@ export interface MessageBubbleProps {
   liveFace?: string | undefined;
   pendingApprovals?: Approval[] | undefined;
   activeSessionIds?: string[] | undefined;
+  onPinMessage?: ((message: Message) => void) | undefined;
+  pinnedMessageIds?: string[] | undefined;
 }
 
 export function areMessageBubblePropsEqual(prev: MessageBubbleProps, next: MessageBubbleProps): boolean {
@@ -38,7 +40,9 @@ export function areMessageBubblePropsEqual(prev: MessageBubbleProps, next: Messa
     prev.liveStatus === next.liveStatus &&
     prev.liveFace === next.liveFace &&
     prev.pendingApprovals === next.pendingApprovals &&
-    prev.activeSessionIds === next.activeSessionIds
+    prev.activeSessionIds === next.activeSessionIds &&
+    prev.onPinMessage === next.onPinMessage &&
+    prev.pinnedMessageIds === next.pinnedMessageIds
   );
 }
 

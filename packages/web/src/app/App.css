@@ -7039,6 +7039,85 @@ button.hm-copyable {
   animation: hm-user-copy-feedback 3s ease forwards;
 }
 
+/* Pinned chat message — compact, sticky transcript shortcut. */
+.hm-pinned-messages {
+  position: sticky;
+  top: 0;
+  z-index: 3;
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+
+.hm-pinned-message {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  width: 100%;
+  min-height: 38px;
+  padding: 4px 5px 4px 10px;
+  border: 1px solid color-mix(in srgb, var(--hm-color-primary) 22%, var(--hm-color-border));
+  border-radius: var(--hm-radius-full);
+  background: color-mix(in srgb, var(--hm-color-surface) 94%, var(--hm-color-primary-tint));
+  box-shadow: var(--hm-elev-1);
+  backdrop-filter: blur(12px);
+}
+
+.hm-pinned-message__body {
+  display: flex;
+  flex: 1;
+  min-width: 0;
+  align-items: center;
+  gap: 7px;
+  overflow: hidden;
+  border: 0;
+  background: transparent;
+  color: var(--hm-color-text-2);
+  font: inherit;
+  font-size: var(--hm-fs-small);
+  text-align: left;
+}
+
+.hm-pinned-message__body svg {
+  flex: 0 0 auto;
+  color: var(--hm-color-primary);
+}
+
+.hm-pinned-message__body span {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.hm-pinned-message__close,
+.hm-message__pin {
+  display: inline-flex;
+  flex: 0 0 auto;
+  align-items: center;
+  justify-content: center;
+  min-width: 28px;
+  min-height: 28px;
+  padding: 3px;
+  border: 0;
+  border-radius: var(--hm-radius-full);
+  background: transparent;
+  color: var(--hm-color-text-muted);
+}
+
+.hm-pinned-message__close:hover,
+.hm-message__pin:hover,
+.hm-message__pin--active {
+  background: var(--hm-color-primary-tint);
+  color: var(--hm-color-primary);
+}
+
+@media (hover: none) {
+  .hm-message__meta {
+    opacity: 1;
+    pointer-events: auto;
+  }
+}
+
 @keyframes hm-user-copy-feedback {
   0%, 82% { opacity: 1; }
   100% { opacity: 0; }

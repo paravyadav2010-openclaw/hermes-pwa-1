@@ -18,6 +18,7 @@ import { Composer } from '../components/Composer';
 import { ProfileModelBar } from '../components/ProfileModelBar';
 import { TodoPanel } from '../components/TodoPanel';
 import { ApprovalDock } from '../components/ApprovalDock';
+import { PinnedMessagePill, pinnedMessagePreview, type PinnedMessage } from '../components/PinnedMessagePill';
 import {
   MAX_ATTACHMENT_BYTES,
   attachmentTooLargeMessage,
@@ -44,6 +45,30 @@ const CONTROL_CHAR_PATTERN = /[\u0000-\u001F\u007F]+/gu;
 const NON_CHAT_STATUS_KINDS = new Set(['lifecycle', 'compress', 'compressing', 'compression']);
 const NON_CHAT_STATUS_TEXT = /\b(compacting context|summarizing earlier conversation|compression summary|preflight compression)\b/i;
 const CHAT_HISTORY_REFRESH_INTERVAL_MS = 5_000;
+const PINNED_MESSAGE_STORAGE_PREFIX = 'hermes-pwa.pinnedMessage.v1:';
+
+function pinnedMessageStorageKey(sessionId: string): string {
+  return `${PINNED_MESSAGE_STORAGE_PREFIX}${encodeURIComponent(sessionId)}`;
+}
+
+function readPinnedMessages(sessionId: string | undefined): PinnedMessage[] {
+  if (!sessionId || typeof window === 'undefined') return [];
+  try {
+    const value = JSON.parse(window.localStorage.getItem(pinnedMessageStorageKey(sessionId)) ?? '[]') as unknown;
+    const entries = Array.isArray(value) ? value : [value];
+    const unique = new Map<string, PinnedMessage>();
+    for (const entry of entries) {
+      if (!entry || typeof entry !== 'object') continue;
+      const candidate = entry as Partial<PinnedMessage>;
+      if (typeof candidate.id === 'string' && typeof candidate.preview === 'string') {
+        unique.set(candidate.id, { id: candidate.id, preview: candidate.preview });
+      }
+    }
+    return [...unique.values()];
+  } catch {
+    return [];
+  }
+}
 
 function normalizeBusyInputMode(value: unknown): BusyInputMode {
   return value === 'queue' || value === 'interrupt' || value === 'steer' ? value : 'queue';
@@ -139,6 +164,38 @@ export function Chat({ rpc, rest, onNavigate }: ChatProps) {
     () => [sessionId, storedSessionId].filter((value): value is string => Boolean(value)),
     [sessionId, storedSessionId],
   );
+  const pinnedSessionId = storedSessionId ?? sessionId;
+  const [pinnedMessages, setPinnedMessages] = useState<PinnedMessage[]>(() => readPinnedMessages(pinnedSessionId));
+
+  useEffect(() => {
+    setPinnedMessages(readPinnedMessages(pinnedSessionId));
+  }, [pinnedSessionId]);
+
+  const handlePinMessage = useCallback((message: import('@hermes-pwa/core').Message) => {
+    if (!pinnedSessionId || !message.text.trim()) return;
+    setPinnedMessages((current) => {
+      const existing = current.some((pinned) => pinned.id === message.id);
+      const next = existing
+        ? current.filter((pinned) => pinned.id !== message.id)
+        : [...current, { id: message.id, preview: pinnedMessagePreview(message.text) }];
+      try {
+        const key = pinnedMessageStorageKey(pinnedSessionId);
+        if (next.length > 0) window.localStorage.setItem(key, JSON.stringify(next));
+        else window.localStorage.removeItem(key);
+      } catch {
+        // Client-side convenience state remains usable even when storage is unavailable.
+      }
+      return next;
+    });
+  }, [pinnedSessionId]);
+
+  const openPinnedMessage = useCallback((messageId: string) => {
+    const target = document.getElementById(`hm-message-${messageId}`);
+    if (!target) return;
+    target.scrollIntoView({ behavior: 'smooth', block: 'center' });
+    target.setAttribute('tabindex', '-1');
+    target.focus({ preventScroll: true });
+  }, []);
   // Approvals are global activity events; only dock those owned by this chat.
   const scopedPendingApprovals = useMemo(() => {
     if (activeSessionIds.length === 0) return pendingApprovals;
@@ -886,6 +943,18 @@ export function Chat({ rpc, rest, onNavigate }: ChatProps) {
         aria-busy={streaming}
         aria-label="Conversation"
       >
+        {pinnedMessages.length > 0 ? (
+          <div className="hm-pinned-messages" aria-label="Pinned messages">
+            {pinnedMessages.map((pinnedMessage) => (
+              <PinnedMessagePill
+                key={pinnedMessage.id}
+                message={pinnedMessage}
+                onOpen={() => openPinnedMessage(pinnedMessage.id)}
+                onUnpin={() => handlePinMessage({ id: pinnedMessage.id, role: 'system', text: pinnedMessage.preview, createdAt: undefined })}
+              />
+            ))}
+          </div>
+        ) : null}
         {messages.length > 0 && (
         <div className="hm-chat__context">
           <span className="hm-chat__context-chip hm-chat__context-chip--primary">
@@ -920,6 +989,8 @@ export function Chat({ rpc, rest, onNavigate }: ChatProps) {
                   liveFace={undefined}
                   pendingApprovals={pendingApprovalsForMessage(pendingApprovals, item.index, messages.length)}
                   activeSessionIds={activeSessionIds}
+                  onPinMessage={pinnedSessionId ? handlePinMessage : undefined}
+                  pinnedMessageIds={pinnedMessages.map((pinned) => pinned.id)}
                 />
               );
             }
@@ -936,6 +1007,8 @@ export function Chat({ rpc, rest, onNavigate }: ChatProps) {
                 liveFace={undefined}
                 pendingApprovals={pendingApprovalsForMessage(pendingApprovals, item.endIndex, messages.length)}
                 activeSessionIds={activeSessionIds}
+                onPinMessage={pinnedSessionId ? handlePinMessage : undefined}
+                pinnedMessageIds={pinnedMessages.map((pinned) => pinned.id)}
               />
             );
           })
