@@ -1,5 +1,5 @@
 const CACHE_PREFIX = 'hermes-mobile-';
-const CACHE_VERSION = 'hermes-mobile-v109';
+const CACHE_VERSION = 'hermes-mobile-v110';
 const SHELL_CACHE = `${CACHE_VERSION}:shell`;
 const RUNTIME_ASSET_CACHE = 'hermes-mobile-runtime-assets';
 const RUNTIME_ASSET_CACHE_MAX_ENTRIES = 60;

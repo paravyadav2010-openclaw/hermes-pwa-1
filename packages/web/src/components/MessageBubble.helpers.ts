@@ -50,15 +50,26 @@ interface GalleryImage {
   alt: string;
 }
 
+export interface ThumbRect {
+  left: number;
+  top: number;
+  width: number;
+  height: number;
+}
+
 interface ImageGalleryCtx {
   register(key: string, resolvedSrc: string, alt: string): void;
   unregister(key: string): void;
-  openAt(key: string): void;
+  openAt(key: string, origin?: ThumbRect | null): void;
 }
 
 const ImageGalleryContext = createContext<ImageGalleryCtx | null>(null);
 
 const LIGHTBOX_ROOT_ID = 'hm-lightbox-root';
+const GALLERY_KEY_ATTR = 'data-hm-gallery-key';
+const OPEN_MS = 340;
+const CLOSE_MS = 320;
+const EASE_OUT = 'cubic-bezier(0.22, 1, 0.36, 1)';
 
 /** Dedicated portal host outside swipe-stack / app-shell transforms. */
 export function getLightboxRoot(): HTMLElement | null {
@@ -86,20 +97,88 @@ export function getLightboxRoot(): HTMLElement | null {
   return el;
 }
 
+function measureThumbRect(key: string): ThumbRect | null {
+  if (typeof document === 'undefined') return null;
+  const el = document.querySelector(`[${GALLERY_KEY_ATTR}="${CSS.escape(key)}"]`) as HTMLElement | null;
+  if (!el) return null;
+  const b = el.getBoundingClientRect();
+  if (b.width < 2 || b.height < 2) return null;
+  return { left: b.left, top: b.top, width: b.width, height: b.height };
+}
+
+function readBorderRadius(key: string): string {
+  if (typeof document === 'undefined') return '12px';
+  const el = document.querySelector(`[${GALLERY_KEY_ATTR}="${CSS.escape(key)}"]`) as HTMLElement | null;
+  if (!el) return '12px';
+  const cs = window.getComputedStyle(el);
+  return cs.borderRadius || '12px';
+}
+
+function setThumbHidden(key: string | null, hidden: boolean) {
+  if (typeof document === 'undefined' || !key) return;
+  const el = document.querySelector(`[${GALLERY_KEY_ATTR}="${CSS.escape(key)}"]`) as HTMLElement | null;
+  if (!el) return;
+  if (hidden) {
+    el.dataset.hmLightboxSource = '1';
+    el.style.opacity = '0';
+    el.style.transition = 'opacity 80ms linear';
+  } else {
+    delete el.dataset.hmLightboxSource;
+    el.style.opacity = '';
+    el.style.transition = '';
+  }
+}
+
+function viewportBoxNow(): { left: number; top: number; width: number; height: number } {
+  const vv = typeof window !== 'undefined' ? window.visualViewport : null;
+  if (vv) {
+    return {
+      left: Math.round(vv.offsetLeft),
+      top: Math.round(vv.offsetTop),
+      width: Math.round(vv.width),
+      height: Math.round(vv.height),
+    };
+  }
+  return {
+    left: 0,
+    top: 0,
+    width: typeof window !== 'undefined' ? Math.round(window.innerWidth) : 390,
+    height: typeof window !== 'undefined' ? Math.round(window.innerHeight) : 844,
+  };
+}
+
+/** Full-bleed frame for the hero (matches lightbox shell). */
+function fullHeroRect(): ThumbRect {
+  const v = viewportBoxNow();
+  return { left: v.left, top: v.top, width: v.width, height: v.height };
+}
+
 /** Wraps the markdown tree so all MessageImage children share a gallery. */
 export function ImageGalleryProvider({ children }: { children: ReactNode }) {
   const imagesRef = useRef<GalleryImage[]>([]);
   const keysRef = useRef(new Set<string>());
-  const [lightbox, setLightbox] = useState<{ images: GalleryImage[]; index: number } | null>(null);
+  const [lightbox, setLightbox] = useState<{
+    images: GalleryImage[];
+    index: number;
+    origin: ThumbRect | null;
+    openKey: string;
+  } | null>(null);
   const [portalRoot, setPortalRoot] = useState<HTMLElement | null>(null);
+  const hiddenKeyRef = useRef<string | null>(null);
 
   useEffect(() => {
     setPortalRoot(getLightboxRoot());
   }, []);
 
+  const clearHiddenThumb = useCallback(() => {
+    if (hiddenKeyRef.current) {
+      setThumbHidden(hiddenKeyRef.current, false);
+      hiddenKeyRef.current = null;
+    }
+  }, []);
+
   const register = useCallback((key: string, resolvedSrc: string, alt: string) => {
     if (keysRef.current.has(key)) {
-      // Update resolved src if it changed
       imagesRef.current = imagesRef.current.map((img) =>
         img.key === key ? { ...img, resolvedSrc, alt } : img,
       );
@@ -114,21 +193,45 @@ export function ImageGalleryProvider({ children }: { children: ReactNode }) {
     imagesRef.current = imagesRef.current.filter((img) => img.key !== key);
   }, []);
 
-  const openAt = useCallback((key: string) => {
+  const openAt = useCallback((key: string, origin?: ThumbRect | null) => {
     const idx = imagesRef.current.findIndex((img) => img.key === key);
-    if (idx >= 0) setLightbox({ images: [...imagesRef.current], index: idx });
-  }, []);
+    if (idx < 0) return;
+    const measured = origin ?? measureThumbRect(key);
+    clearHiddenThumb();
+    hiddenKeyRef.current = key;
+    setThumbHidden(key, true);
+    setLightbox({
+      images: [...imagesRef.current],
+      index: idx,
+      origin: measured,
+      openKey: key,
+    });
+  }, [clearHiddenThumb]);
+
+  const closeLightbox = useCallback(() => {
+    clearHiddenThumb();
+    setLightbox(null);
+  }, [clearHiddenThumb]);
 
   const ctx = useMemo<ImageGalleryCtx>(() => ({ register, unregister, openAt }), [register, unregister, openAt]);
 
-  // Portal outside chat/screen transforms so position:fixed is true viewport.
   const host = portalRoot ?? (typeof document !== 'undefined' ? getLightboxRoot() : null);
   const lightboxNode = lightbox && host
     ? createPortal(
         createElement(Lightbox, {
           images: lightbox.images,
           startIndex: lightbox.index,
-          onClose: () => setLightbox(null),
+          origin: lightbox.origin,
+          openKey: lightbox.openKey,
+          onClose: closeLightbox,
+          onActiveKeyChange: (key: string) => {
+            // Keep the matching grid thumb hidden while browsing the gallery
+            if (hiddenKeyRef.current && hiddenKeyRef.current !== key) {
+              setThumbHidden(hiddenKeyRef.current, false);
+            }
+            hiddenKeyRef.current = key;
+            setThumbHidden(key, true);
+          },
         }),
         host,
       )
@@ -142,9 +245,9 @@ export function ImageGalleryProvider({ children }: { children: ReactNode }) {
   );
 }
 
-/* ── Lightbox with swipe ───────────────────────────────────────────── */
+/* ── Lightbox with shared-element open/close + swipe ───────────────── */
 
-const LIGHTBOX_INLINE_STYLE: React.CSSProperties = {
+const LIGHTBOX_SHELL: React.CSSProperties = {
   position: 'fixed',
   top: 0,
   left: 0,
@@ -152,14 +255,12 @@ const LIGHTBOX_INLINE_STYLE: React.CSSProperties = {
   bottom: 0,
   width: '100vw',
   height: '100vh',
-  // dvw/dvh beat iOS chrome / PWA safe layout (also set via class CSS)
   maxWidth: '100vw',
   maxHeight: '100vh',
   margin: 0,
   padding: 0,
   border: 0,
   zIndex: 2147483000,
-  background: 'rgba(0, 0, 0, 0.96)',
   display: 'flex',
   alignItems: 'stretch',
   justifyContent: 'stretch',
@@ -170,58 +271,91 @@ const LIGHTBOX_INLINE_STYLE: React.CSSProperties = {
   pointerEvents: 'auto',
   cursor: 'zoom-out',
   boxSizing: 'border-box',
+  // No backdrop-filter blur — solid dim only
+  background: 'transparent',
 };
 
-function Lightbox({ images, startIndex, onClose }: { images: GalleryImage[]; startIndex: number; onClose: () => void }) {
+function Lightbox({
+  images,
+  startIndex,
+  origin,
+  openKey,
+  onClose,
+  onActiveKeyChange,
+}: {
+  images: GalleryImage[];
+  startIndex: number;
+  origin: ThumbRect | null;
+  openKey: string;
+  onClose: () => void;
+  onActiveKeyChange?: (key: string) => void;
+}) {
   const [index, setIndex] = useState(startIndex);
   const containerRef = useRef<HTMLDivElement>(null);
-  const [viewportBox, setViewportBox] = useState({ top: 0, left: 0, width: 0, height: 0 });
+  const [vp, setVp] = useState(viewportBoxNow);
   const [slideWidth, setSlideWidth] = useState(0);
 
-  const prev = useCallback(() => setIndex((i) => Math.max(0, i - 1)), []);
-  const next = useCallback(() => setIndex((i) => Math.min(images.length - 1, i + 1)), [images.length]);
+  // opening | open | dragging | settling | dismissing
+  const [phase, setPhase] = useState<'opening' | 'open' | 'dragging' | 'settling' | 'dismissing'>(
+    origin ? 'opening' : 'open',
+  );
+  const [backdrop, setBackdrop] = useState(origin ? 0 : 0.92);
+  const [hero, setHero] = useState<{ rect: ThumbRect; radius: string; fit: 'cover' | 'contain' } | null>(
+    origin
+      ? { rect: origin, radius: readBorderRadius(openKey), fit: 'cover' }
+      : null,
+  );
+  const [showTrack, setShowTrack] = useState(!origin);
+  const [chromeOn, setChromeOn] = useState(!origin);
 
-  // Body scroll lock + block tab-swipe while open
+  const [dragX, setDragX] = useState(0);
+  const [dragY, setDragY] = useState(0);
+  const dragStart = useRef<{ x: number; y: number; time: number } | null>(null);
+  const axisLock = useRef<'x' | 'y' | null>(null);
+  const closedRef = useRef(false);
+  const closeTimerRef = useRef<number | null>(null);
+  const openOriginRef = useRef(origin);
+
+  const activeKey = images[index]?.key ?? openKey;
+
+  const prev = useCallback(() => {
+    setIndex((i) => {
+      const n = Math.max(0, i - 1);
+      const k = images[n]?.key;
+      if (k) onActiveKeyChange?.(k);
+      return n;
+    });
+  }, [images, onActiveKeyChange]);
+
+  const next = useCallback(() => {
+    setIndex((i) => {
+      const n = Math.min(images.length - 1, i + 1);
+      const k = images[n]?.key;
+      if (k) onActiveKeyChange?.(k);
+      return n;
+    });
+  }, [images, onActiveKeyChange]);
+
+  // Body scroll lock
   useEffect(() => {
     const html = document.documentElement;
     const body = document.body;
     const prevHtmlOverflow = html.style.overflow;
     const prevBodyOverflow = body.style.overflow;
-    const prevHtmlOverscroll = html.style.overscrollBehavior;
-    const prevBodyOverscroll = body.style.overscrollBehavior;
     body.dataset.lightboxOpen = 'true';
     html.style.overflow = 'hidden';
     body.style.overflow = 'hidden';
-    html.style.overscrollBehavior = 'none';
-    body.style.overscrollBehavior = 'none';
     return () => {
       delete body.dataset.lightboxOpen;
       html.style.overflow = prevHtmlOverflow;
       body.style.overflow = prevBodyOverflow;
-      html.style.overscrollBehavior = prevHtmlOverscroll;
-      body.style.overscrollBehavior = prevBodyOverscroll;
     };
   }, []);
 
-  // visualViewport pixel box (iOS address bar / keyboard safe)
+  // Viewport tracking
   useEffect(() => {
     const apply = () => {
-      const vv = window.visualViewport;
-      if (vv) {
-        setViewportBox({
-          top: Math.round(vv.offsetTop),
-          left: Math.round(vv.offsetLeft),
-          width: Math.round(vv.width),
-          height: Math.round(vv.height),
-        });
-      } else {
-        setViewportBox({
-          top: 0,
-          left: 0,
-          width: Math.round(window.innerWidth),
-          height: Math.round(window.innerHeight),
-        });
-      }
+      setVp(viewportBoxNow());
       const el = containerRef.current;
       if (el) setSlideWidth(el.clientWidth || window.innerWidth);
     };
@@ -239,74 +373,144 @@ function Lightbox({ images, startIndex, onClose }: { images: GalleryImage[]; sta
     };
   }, []);
 
-  // Horizontal = gallery; vertical up/down = dismiss (iOS Photos-style)
-  const [dragX, setDragX] = useState(0);
-  const [dragY, setDragY] = useState(0);
-  /** idle | dragging (finger down) | settling (spring back) | dismissing (exit anim) */
-  const [motion, setMotion] = useState<'idle' | 'dragging' | 'settling' | 'dismissing'>('idle');
-  const dragStart = useRef<{ x: number; y: number; time: number } | null>(null);
-  const axisLock = useRef<'x' | 'y' | null>(null);
-  const closedRef = useRef(false);
-  const dismissTimerRef = useRef<number | null>(null);
+  // Shared-element OPEN: thumb → fullscreen
+  useEffect(() => {
+    if (phase !== 'opening' || !origin) return;
+    let cancelled = false;
+    const id = requestAnimationFrame(() => {
+      requestAnimationFrame(() => {
+        if (cancelled) return;
+        setBackdrop(0.92);
+        setHero({
+          rect: fullHeroRect(),
+          radius: '0px',
+          fit: 'contain',
+        });
+        setChromeOn(true);
+      });
+    });
+    const done = window.setTimeout(() => {
+      if (cancelled) return;
+      setPhase('open');
+      setShowTrack(true);
+      // Keep hero one frame then drop — track takes over
+      window.setTimeout(() => {
+        if (!cancelled) setHero(null);
+      }, 40);
+    }, OPEN_MS + 20);
+    return () => {
+      cancelled = true;
+      cancelAnimationFrame(id);
+      window.clearTimeout(done);
+    };
+  }, [phase, origin]);
 
   const finishClose = useCallback(() => {
     if (closedRef.current) return;
     closedRef.current = true;
-    if (dismissTimerRef.current != null) {
-      window.clearTimeout(dismissTimerRef.current);
-      dismissTimerRef.current = null;
+    if (closeTimerRef.current != null) {
+      window.clearTimeout(closeTimerRef.current);
+      closeTimerRef.current = null;
     }
     onClose();
   }, [onClose]);
 
   useEffect(() => () => {
-    if (dismissTimerRef.current != null) window.clearTimeout(dismissTimerRef.current);
+    if (closeTimerRef.current != null) window.clearTimeout(closeTimerRef.current);
   }, []);
 
-  const beginDismiss = useCallback((fromY: number) => {
-    if (closedRef.current || motion === 'dismissing') return;
-    const h = Math.max(
-      viewportBox.height || 0,
-      typeof window !== 'undefined' ? window.innerHeight : 0,
-      480,
-    );
-    // Travel far enough that the image fully leaves + slight overshoot feels natural
-    const dir = fromY === 0 ? 1 : Math.sign(fromY) || 1;
-    const exitY = dir * (h * 0.92 + 48);
-    setMotion('dismissing');
-    // Double-rAF: paint current frame first so the CSS transition actually runs
+  const beginDismiss = useCallback((dragOffsetY = 0) => {
+    if (closedRef.current || phase === 'dismissing') return;
+    const key = images[index]?.key ?? openKey;
+    const target = measureThumbRect(key) ?? openOriginRef.current;
+    const from = fullHeroRect();
+
+    setPhase('dismissing');
+    setChromeOn(false);
+    setShowTrack(false);
+    setDragX(0);
+    setDragY(0);
+
+    // Start hero at current visual (shifted if finger-dragging)
+    const startRect: ThumbRect = {
+      left: from.left,
+      top: from.top + dragOffsetY,
+      width: from.width,
+      height: from.height,
+    };
+    setHero({
+      rect: startRect,
+      radius: '0px',
+      fit: 'contain',
+    });
+    setBackdrop(Math.max(0, 0.92 * (1 - Math.min(1, Math.abs(dragOffsetY) / (from.height * 0.4)))));
+
     requestAnimationFrame(() => {
       requestAnimationFrame(() => {
-        setDragX(0);
-        setDragY(exitY);
+        if (target) {
+          setHero({
+            rect: target,
+            radius: readBorderRadius(key),
+            fit: 'cover',
+          });
+        } else {
+          // No thumb: slide + fade away in swipe direction
+          const dir = dragOffsetY === 0 ? 1 : Math.sign(dragOffsetY) || 1;
+          setHero({
+            rect: {
+              left: from.left,
+              top: from.top + dir * from.height,
+              width: from.width,
+              height: from.height,
+            },
+            radius: '0px',
+            fit: 'contain',
+          });
+        }
+        setBackdrop(0);
       });
     });
-    // Fallback if transitionend is missed (JSDOM / iOS quirks)
-    dismissTimerRef.current = window.setTimeout(finishClose, 380);
-  }, [finishClose, motion, viewportBox.height]);
+
+    closeTimerRef.current = window.setTimeout(finishClose, CLOSE_MS + 40);
+  }, [finishClose, images, index, openKey, phase]);
+
+  // Keyboard
+  useEffect(() => {
+    function onKey(e: KeyboardEvent) {
+      if (e.key === 'Escape') {
+        e.preventDefault();
+        beginDismiss(0);
+        return;
+      }
+      if (phase === 'dismissing' || phase === 'opening') return;
+      if (e.key === 'ArrowLeft') prev();
+      if (e.key === 'ArrowRight') next();
+    }
+    window.addEventListener('keydown', onKey);
+    return () => window.removeEventListener('keydown', onKey);
+  }, [beginDismiss, phase, prev, next]);
 
   function onTouchStart(e: React.TouchEvent) {
-    if (motion === 'dismissing' || closedRef.current) return;
+    if (phase === 'dismissing' || phase === 'opening' || closedRef.current) return;
     dragStart.current = { x: e.touches[0].clientX, y: e.touches[0].clientY, time: Date.now() };
     axisLock.current = null;
-    setMotion('dragging');
+    setPhase('dragging');
     setDragX(0);
     setDragY(0);
   }
+
   function onTouchMove(e: React.TouchEvent) {
-    if (!dragStart.current || motion === 'dismissing' || closedRef.current) return;
+    if (!dragStart.current || phase === 'dismissing' || phase === 'opening' || closedRef.current) return;
     const dx = e.touches[0].clientX - dragStart.current.x;
     const dy = e.touches[0].clientY - dragStart.current.y;
 
-    // Lock axis after a small movement so gallery vs dismiss don't fight
     if (!axisLock.current) {
       if (Math.abs(dx) < 8 && Math.abs(dy) < 8) return;
       axisLock.current = Math.abs(dy) > Math.abs(dx) ? 'y' : 'x';
     }
 
     if (axisLock.current === 'y') {
-      // Soft rubber-band past ~45% of height so drag never feels stuck
-      const h = Math.max(viewportBox.height || window.innerHeight, 1);
+      const h = Math.max(vp.height, 1);
       const limit = h * 0.55;
       let adjY = dy;
       if (Math.abs(adjY) > limit) {
@@ -315,6 +519,9 @@ function Lightbox({ images, startIndex, onClose }: { images: GalleryImage[]; sta
       }
       setDragY(adjY);
       setDragX(0);
+      // Live dim while dragging down/up
+      const p = Math.min(1, Math.abs(adjY) / (h * 0.38));
+      setBackdrop(Math.max(0.35, 0.92 * (1 - p * 0.65)));
       return;
     }
 
@@ -324,8 +531,9 @@ function Lightbox({ images, startIndex, onClose }: { images: GalleryImage[]; sta
     setDragX(adjX);
     setDragY(0);
   }
+
   function onTouchEnd(e: React.TouchEvent) {
-    if (!dragStart.current || motion === 'dismissing' || closedRef.current) return;
+    if (!dragStart.current || phase === 'dismissing' || phase === 'opening' || closedRef.current) return;
     const dx = e.changedTouches[0].clientX - dragStart.current.x;
     const dy = e.changedTouches[0].clientY - dragStart.current.y;
     const elapsed = Math.max(1, Date.now() - dragStart.current.time);
@@ -335,27 +543,22 @@ function Lightbox({ images, startIndex, onClose }: { images: GalleryImage[]; sta
 
     if (axis === 'y') {
       const velocityY = Math.abs(dy) / elapsed;
-      // Swipe up or down closes
       if (Math.abs(dy) > 72 || (velocityY > 0.4 && Math.abs(dy) > 24)) {
         beginDismiss(dy);
         return;
       }
-      // Spring back to center
-      setMotion('settling');
+      setPhase('settling');
       setDragY(0);
       setDragX(0);
-      window.setTimeout(() => {
-        setMotion((m) => (m === 'settling' ? 'idle' : m));
-      }, 320);
+      setBackdrop(0.92);
+      window.setTimeout(() => setPhase((p) => (p === 'settling' ? 'open' : p)), 280);
       return;
     }
 
-    setMotion('settling');
+    setPhase('settling');
     setDragX(0);
     setDragY(0);
-    window.setTimeout(() => {
-      setMotion((m) => (m === 'settling' ? 'idle' : m));
-    }, 320);
+    window.setTimeout(() => setPhase((p) => (p === 'settling' ? 'open' : p)), 280);
     const velocityX = Math.abs(dx) / elapsed;
     if ((Math.abs(dx) > 60 || velocityX > 0.3) && Math.abs(dx) > 20) {
       if (dx < 0) next();
@@ -365,158 +568,154 @@ function Lightbox({ images, startIndex, onClose }: { images: GalleryImage[]; sta
 
   function onBackdropClick(e: React.MouseEvent) {
     if (e.target !== containerRef.current) return;
-    if (motion === 'dismissing') return;
+    if (phase === 'dismissing' || phase === 'opening') return;
     beginDismiss(0);
   }
-
-  function onCloseClick(e: React.MouseEvent) {
-    e.stopPropagation();
-    if (motion === 'dismissing') return;
-    beginDismiss(0);
-  }
-
-  // Escape / keyboard still uses smooth dismiss when possible
-  useEffect(() => {
-    function onKey(e: KeyboardEvent) {
-      if (e.key === 'Escape') {
-        e.preventDefault();
-        beginDismiss(0);
-        return;
-      }
-      if (motion === 'dismissing') return;
-      if (e.key === 'ArrowLeft') prev();
-      if (e.key === 'ArrowRight') next();
-    }
-    window.addEventListener('keydown', onKey);
-    return () => window.removeEventListener('keydown', onKey);
-  }, [beginDismiss, motion, prev, next]);
 
   if (!images[index]) return null;
 
-  const widthPx = slideWidth || viewportBox.width || (typeof window !== 'undefined' ? window.innerWidth : 0);
-  const heightPx = viewportBox.height || (typeof window !== 'undefined' ? window.innerHeight : 0);
-  const dismissProgress = heightPx > 0
-    ? Math.min(1, Math.abs(dragY) / (heightPx * (motion === 'dismissing' ? 0.85 : 0.38)))
-    : 0;
-  const bgAlpha = motion === 'dismissing'
-    ? Math.max(0, 0.96 * (1 - dismissProgress))
-    : Math.max(0.4, 0.96 * (1 - dismissProgress * 0.7));
-  const fingerDown = motion === 'dragging';
-  // Animate whenever not finger-dragging (settle + dismiss need transitions ON)
-  const animateMotion = motion !== 'dragging';
-  const easeOut = 'cubic-bezier(0.22, 1, 0.36, 1)';
-  const easeSettle = 'cubic-bezier(0.34, 1.2, 0.64, 1)';
-  const motionEase = motion === 'dismissing' ? easeOut : easeSettle;
-  const motionMs = motion === 'dismissing' ? 340 : 300;
+  const widthPx = slideWidth || vp.width;
+  const animatingMorph = phase === 'opening' || phase === 'dismissing';
+  const fingerDown = phase === 'dragging';
+  const trackTransition = fingerDown
+    ? 'none'
+    : phase === 'settling'
+      ? `transform 280ms ${EASE_OUT}`
+      : `transform 320ms ${EASE_OUT}`;
 
-  const boxStyle: React.CSSProperties = {
-    ...LIGHTBOX_INLINE_STYLE,
-    background: `rgba(0, 0, 0, ${bgAlpha})`,
-    opacity: motion === 'dismissing' ? Math.max(0, 1 - dismissProgress * 0.55) : 1,
-    transition: animateMotion
-      ? `background ${motionMs}ms ${motionEase}, opacity ${motionMs}ms ${motionEase}`
-      : 'none',
-    ...(viewportBox.width > 0
-      ? {
-          top: viewportBox.top,
-          left: viewportBox.left,
-          width: viewportBox.width,
-          height: viewportBox.height,
-          right: 'auto',
-          bottom: 'auto',
-          maxWidth: viewportBox.width,
-          maxHeight: viewportBox.height,
-        }
-      : null),
+  const shellStyle: React.CSSProperties = {
+    ...LIGHTBOX_SHELL,
+    top: vp.top,
+    left: vp.left,
+    width: vp.width,
+    height: vp.height,
+    right: 'auto',
+    bottom: 'auto',
+    maxWidth: vp.width,
+    maxHeight: vp.height,
+    background: `rgba(0, 0, 0, ${backdrop})`,
+    transition: fingerDown
+      ? 'none'
+      : `background ${animatingMorph ? (phase === 'opening' ? OPEN_MS : CLOSE_MS) : 220}ms ${EASE_OUT}`,
   };
 
-  const chromeOpacity = motion === 'dismissing'
-    ? 0
-    : Math.max(0, 1 - dismissProgress * 1.35);
-  const scale = motion === 'dismissing'
-    ? Math.max(0.86, 1 - dismissProgress * 0.12)
-    : Math.max(0.92, 1 - dismissProgress * 0.07);
+  const heroStyle: React.CSSProperties | undefined = hero
+    ? {
+        position: 'fixed',
+        left: hero.rect.left,
+        top: hero.rect.top,
+        width: hero.rect.width,
+        height: hero.rect.height,
+        objectFit: hero.fit,
+        borderRadius: hero.radius,
+        margin: 0,
+        padding: 0,
+        zIndex: 2147483002,
+        pointerEvents: 'none',
+        boxShadow: phase === 'opening' || phase === 'dismissing'
+          ? '0 8px 40px rgba(0,0,0,0.35)'
+          : 'none',
+        transition: fingerDown
+          ? 'none'
+          : [
+              `left ${phase === 'opening' ? OPEN_MS : CLOSE_MS}ms ${EASE_OUT}`,
+              `top ${phase === 'opening' ? OPEN_MS : CLOSE_MS}ms ${EASE_OUT}`,
+              `width ${phase === 'opening' ? OPEN_MS : CLOSE_MS}ms ${EASE_OUT}`,
+              `height ${phase === 'opening' ? OPEN_MS : CLOSE_MS}ms ${EASE_OUT}`,
+              `border-radius ${phase === 'opening' ? OPEN_MS : CLOSE_MS}ms ${EASE_OUT}`,
+            ].join(', '),
+        willChange: 'left, top, width, height, border-radius',
+      }
+    : undefined;
 
-  // Render all images as a sliding strip
+  const chromeOpacity = chromeOn && !fingerDown && phase !== 'dismissing' && Math.abs(dragY) < 12
+    ? 1
+    : chromeOn
+      ? Math.max(0, 1 - Math.min(1, Math.abs(dragY) / 120))
+      : 0;
+
+  const img = images[index];
+
   return createElement('div', {
     ref: containerRef,
-    className: `hm-md-img-lightbox${motion === 'dismissing' ? ' hm-md-img-lightbox--dismissing' : ''}`,
+    className: `hm-md-img-lightbox hm-md-img-lightbox--${phase}`,
     role: 'dialog',
     'aria-modal': true,
     'aria-label': 'Image viewer',
-    style: boxStyle,
+    style: shellStyle,
     onClick: onBackdropClick,
     onTouchStart,
     onTouchMove,
     onTouchEnd,
     onTransitionEnd: (e: React.TransitionEvent) => {
-      if (motion !== 'dismissing') return;
-      if (e.target !== e.currentTarget && !(e.target as HTMLElement)?.classList?.contains('hm-md-img-lightbox__track')) {
-        return;
-      }
-      // Prefer track transform end
-      if ((e.target as HTMLElement)?.classList?.contains('hm-md-img-lightbox__track') || e.propertyName === 'transform' || e.propertyName === 'opacity') {
+      if (phase !== 'dismissing') return;
+      if (e.propertyName === 'background' || e.propertyName === 'left' || e.propertyName === 'top' || e.propertyName === 'width') {
         finishClose();
       }
     },
   },
+    // Shared-element hero (open from grid / close back to grid)
+    hero && img && createElement('img', {
+      src: img.resolvedSrc,
+      alt: img.alt,
+      className: 'hm-md-img-lightbox__hero',
+      draggable: false,
+      style: heroStyle,
+      onTransitionEnd: (e: React.TransitionEvent) => {
+        if (phase !== 'dismissing') return;
+        if (e.propertyName === 'left' || e.propertyName === 'width' || e.propertyName === 'top') {
+          e.stopPropagation();
+          finishClose();
+        }
+      },
+    }),
+
     // Counter
     images.length > 1 && createElement('span', {
       className: 'hm-md-img-lightbox__counter',
       style: {
         opacity: chromeOpacity,
-        transition: animateMotion ? `opacity ${motionMs}ms ${motionEase}` : 'none',
-        pointerEvents: fingerDown || motion === 'dismissing' ? 'none' : undefined,
+        transition: `opacity 200ms ${EASE_OUT}`,
+        pointerEvents: 'none',
       },
-    },
-      `${index + 1} / ${images.length}`,
-    ),
-    // Prev button
+    }, `${index + 1} / ${images.length}`),
+
     index > 0 && createElement('button', {
       type: 'button',
       className: 'hm-md-img-lightbox__nav hm-md-img-lightbox__nav--prev',
       style: {
         opacity: chromeOpacity,
-        transition: animateMotion ? `opacity ${motionMs}ms ${motionEase}` : 'none',
-        pointerEvents: motion === 'dismissing' ? 'none' : undefined,
+        transition: `opacity 200ms ${EASE_OUT}`,
+        pointerEvents: phase === 'dismissing' || phase === 'opening' ? 'none' : undefined,
       },
-      onClick: (e: React.MouseEvent) => { e.stopPropagation(); if (motion !== 'dismissing') prev(); },
+      onClick: (e: React.MouseEvent) => { e.stopPropagation(); if (phase === 'open' || phase === 'settling') prev(); },
       'aria-label': 'Previous image',
     },
       createElement('svg', { width: 24, height: 24, viewBox: '0 0 24 24', fill: 'none', stroke: 'currentColor', strokeWidth: 2, strokeLinecap: 'round', strokeLinejoin: 'round' },
         createElement('path', { d: 'M15 18l-6-6 6-6' }),
       ),
     ),
-    // Sliding strip — pixel translate; vertical drag dismisses with ease-out exit
-    createElement('div', {
+
+    // Gallery track (after open morph)
+    showTrack && createElement('div', {
       className: 'hm-md-img-lightbox__track',
       style: {
-        transform: `translate3d(${(-index * widthPx) + dragX}px, ${dragY}px, 0) scale(${scale})`,
-        transition: animateMotion
-          ? `transform ${motionMs}ms ${motionEase}, opacity ${motionMs}ms ${motionEase}`
-          : 'none',
+        transform: `translate3d(${(-index * widthPx) + dragX}px, ${dragY}px, 0) scale(${1 - Math.min(0.06, Math.abs(dragY) / Math.max(vp.height, 1) * 0.12)})`,
+        transition: trackTransition,
         width: widthPx > 0 ? `${images.length * widthPx}px` : undefined,
-        opacity: motion === 'dismissing'
-          ? Math.max(0, 1 - dismissProgress)
-          : Math.max(0.55, 1 - dismissProgress * 0.28),
-        willChange: 'transform, opacity',
-      },
-      onTransitionEnd: (e: React.TransitionEvent) => {
-        if (motion !== 'dismissing') return;
-        if (e.propertyName !== 'transform' && e.propertyName !== 'opacity') return;
-        e.stopPropagation();
-        finishClose();
+        opacity: phase === 'dismissing' ? 0 : 1,
+        visibility: hero && (phase === 'opening' || phase === 'dismissing') ? 'hidden' : 'visible',
       },
     },
-      ...images.map((img) =>
+      ...images.map((gImg) =>
         createElement('div', {
-          key: img.key,
+          key: gImg.key,
           className: 'hm-md-img-lightbox__slide',
           style: widthPx > 0 ? { flex: `0 0 ${widthPx}px`, width: widthPx } : undefined,
         },
           createElement('img', {
-            src: img.resolvedSrc,
-            alt: img.alt,
+            src: gImg.resolvedSrc,
+            alt: gImg.alt,
             className: 'hm-md-img-lightbox__img',
             draggable: false,
             onClick: (e: React.MouseEvent) => e.stopPropagation(),
@@ -524,32 +723,35 @@ function Lightbox({ images, startIndex, onClose }: { images: GalleryImage[]; sta
         ),
       ),
     ),
-    // Next button
+
     index < images.length - 1 && createElement('button', {
       type: 'button',
       className: 'hm-md-img-lightbox__nav hm-md-img-lightbox__nav--next',
       style: {
         opacity: chromeOpacity,
-        transition: animateMotion ? `opacity ${motionMs}ms ${motionEase}` : 'none',
-        pointerEvents: motion === 'dismissing' ? 'none' : undefined,
+        transition: `opacity 200ms ${EASE_OUT}`,
+        pointerEvents: phase === 'dismissing' || phase === 'opening' ? 'none' : undefined,
       },
-      onClick: (e: React.MouseEvent) => { e.stopPropagation(); if (motion !== 'dismissing') next(); },
+      onClick: (e: React.MouseEvent) => { e.stopPropagation(); if (phase === 'open' || phase === 'settling') next(); },
       'aria-label': 'Next image',
     },
       createElement('svg', { width: 24, height: 24, viewBox: '0 0 24 24', fill: 'none', stroke: 'currentColor', strokeWidth: 2, strokeLinecap: 'round', strokeLinejoin: 'round' },
         createElement('path', { d: 'M9 18l6-6-6-6' }),
       ),
     ),
-    // Close button
+
     createElement('button', {
       type: 'button',
       className: 'hm-md-img-lightbox__close',
       style: {
         opacity: chromeOpacity,
-        transition: animateMotion ? `opacity ${motionMs}ms ${motionEase}` : 'none',
-        pointerEvents: motion === 'dismissing' ? 'none' : undefined,
+        transition: `opacity 200ms ${EASE_OUT}`,
+        pointerEvents: phase === 'dismissing' || phase === 'opening' ? 'none' : undefined,
       },
-      onClick: onCloseClick,
+      onClick: (e: React.MouseEvent) => {
+        e.stopPropagation();
+        beginDismiss(0);
+      },
       'aria-label': 'Close',
     },
       createElement('svg', { width: 20, height: 20, viewBox: '0 0 24 24', fill: 'none', stroke: 'currentColor', strokeWidth: 2.5, strokeLinecap: 'round', strokeLinejoin: 'round' },
@@ -707,6 +909,7 @@ export function MessageImage({ src, alt, ...props }: ImgHTMLAttributes<HTMLImage
   const [resolvedSrc, setResolvedSrc] = useState(src);
   const gallery = useContext(ImageGalleryContext);
   const keyRef = useRef(`img-${src}-${Math.random().toString(36).slice(2, 8)}`);
+  const imgRef = useRef<HTMLImageElement | null>(null);
 
   // Resolve /api/media and /api/files/read JSON responses to data URLs
   useEffect(() => {
@@ -734,16 +937,27 @@ export function MessageImage({ src, alt, ...props }: ImgHTMLAttributes<HTMLImage
   }, [gallery, resolvedSrc, alt]);
 
   const handleClick = useCallback(() => {
-    gallery?.openAt(keyRef.current);
+    if (!gallery) return;
+    const el = imgRef.current;
+    let origin: ThumbRect | null = null;
+    if (el) {
+      const b = el.getBoundingClientRect();
+      if (b.width >= 2 && b.height >= 2) {
+        origin = { left: b.left, top: b.top, width: b.width, height: b.height };
+      }
+    }
+    gallery.openAt(keyRef.current, origin);
   }, [gallery]);
 
   return createElement('span', { className: 'hm-md-img-wrap' },
     createElement('img', {
       ...props,
+      ref: imgRef,
       src: resolvedSrc,
       alt: alt || '',
       className: 'hm-md-img',
       loading: 'lazy',
+      [GALLERY_KEY_ATTR]: keyRef.current,
       onClick: handleClick,
       style: { cursor: 'zoom-in' },
     }),

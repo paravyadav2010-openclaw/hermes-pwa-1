@@ -1546,20 +1546,30 @@ a {
   z-index: 2147483000;
   margin: 0;
   padding: 0;
-  background: rgba(0, 0, 0, 0.96);
+  /* Solid dim only — no blur (shared-element morph handles the motion) */
+  background: rgba(0, 0, 0, 0.92);
   display: flex;
   align-items: stretch;
   justify-content: stretch;
   cursor: zoom-out;
-  animation: hm-fadein 0.15s ease;
-  -webkit-backdrop-filter: blur(10px);
-  backdrop-filter: blur(10px);
   transform: none;
   isolation: isolate;
-  /* Safe-area chrome is on slides / controls — keep shell edge-to-edge */
   overscroll-behavior: none;
   touch-action: none;
   box-sizing: border-box;
+}
+
+.hm-md-img-lightbox__hero {
+  display: block;
+  background: transparent;
+  -webkit-user-drag: none;
+  user-select: none;
+  -webkit-user-select: none;
+  -webkit-touch-callout: none;
+}
+
+img.hm-md-img[data-hm-lightbox-source='1'] {
+  opacity: 0 !important;
 }
 
 .hm-md-img-lightbox__img {
@@ -1616,14 +1626,12 @@ a {
   height: 44px;
   border: 0;
   border-radius: 50%;
-  background: rgba(255, 255, 255, 0.14);
+  background: rgba(255, 255, 255, 0.16);
   color: rgba(255, 255, 255, 0.95);
   cursor: pointer;
   display: flex;
   align-items: center;
   justify-content: center;
-  -webkit-backdrop-filter: blur(8px);
-  backdrop-filter: blur(8px);
   transition: background 0.15s, transform 0.15s;
 }
 
@@ -1663,14 +1671,12 @@ a {
   height: 44px;
   border: 0;
   border-radius: 50%;
-  background: rgba(255, 255, 255, 0.14);
+  background: rgba(255, 255, 255, 0.16);
   color: rgba(255, 255, 255, 0.95);
   cursor: pointer;
   display: flex;
   align-items: center;
   justify-content: center;
-  -webkit-backdrop-filter: blur(8px);
-  backdrop-filter: blur(8px);
   transition: background 0.15s, transform 0.15s;
 }
 
