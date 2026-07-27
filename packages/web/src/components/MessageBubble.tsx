@@ -219,6 +219,14 @@ function recoveredApprovalTool(
 }
 
 function MessageBubbleView({ message, rpc, isLast, streaming, liveStatus, liveFace, pendingApprovals, activeSessionIds }: MessageBubbleProps) {
+  const [userCopyFeedback, setUserCopyFeedback] = useState(false);
+
+  useEffect(() => {
+    if (!userCopyFeedback) return undefined;
+    const timer = window.setTimeout(() => setUserCopyFeedback(false), 3200);
+    return () => window.clearTimeout(timer);
+  }, [userCopyFeedback]);
+
   if (message.role === 'tool') {
     return null;
   }
@@ -231,7 +239,15 @@ function MessageBubbleView({ message, rpc, isLast, streaming, liveStatus, liveFa
     const { images: imageUrls, videos: videoUrls } = extractMediaUrls(preprocessed);
     const textOnly = stripImages(preprocessed);
     return (
-      <div className={`hm-message hm-message--user${isSteer ? ' hm-message--steer' : ''} hm-message--reveal`}>
+      <div
+        className={`hm-user-message${isSteer ? ' hm-user-message--steer' : ''}`}
+        onDoubleClick={() => {
+          void copyText(message.text).then((copied) => {
+            if (copied) setUserCopyFeedback(true);
+          });
+        }}
+      >
+        <div className={`hm-message hm-message--user${isSteer ? ' hm-message--steer' : ''} hm-message--reveal`}>
         {isSteer && <span className="hm-message__steer-label">Steer message</span>}
         {textOnly && <ReactMarkdown remarkPlugins={MARKDOWN_REMARK_PLUGINS} components={MARKDOWN_COMPONENTS}>{textOnly}</ReactMarkdown>}
         {videoUrls.length > 0 && (
@@ -254,7 +270,9 @@ function MessageBubbleView({ message, rpc, isLast, streaming, liveStatus, liveFa
             </div>
           </ImageGalleryProvider>
         )}
+        </div>
         <MessageMetaBar text={message.text} createdAt={message.createdAt} show={Boolean(message.text.trim())} />
+        {userCopyFeedback && <span className="hm-user-message__copy-feedback" role="status">Copied</span>}
       </div>
     );
   }

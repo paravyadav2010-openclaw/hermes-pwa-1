@@ -43,6 +43,21 @@ describe('Composer', () => {
     expect(onSend).toHaveBeenCalledWith('hello');
   });
 
+  it('pastes clipboard text at the composer cursor from the add menu', async () => {
+    const readText = vi.fn().mockResolvedValue('clipboard text');
+    Object.defineProperty(navigator, 'clipboard', { configurable: true, value: { readText } });
+    render(<Composer onSend={vi.fn()} onStop={vi.fn()} busy={false} />);
+
+    const input = screen.getByLabelText('Message input') as HTMLTextAreaElement;
+    fireEvent.change(input, { target: { value: 'before after' } });
+    input.setSelectionRange(7, 7);
+    fireEvent.click(screen.getByRole('button', { name: /Add attachment/i }));
+    fireEvent.click(screen.getByRole('menuitem', { name: /Paste/i }));
+
+    await waitFor(() => expect(readText).toHaveBeenCalled());
+    expect(input).toHaveValue('before clipboard textafter');
+  });
+
   it('does not send when input is empty', () => {
     const onSend = vi.fn();
     render(<Composer onSend={onSend} onStop={vi.fn()} busy={false} />);
@@ -142,7 +157,7 @@ describe('Composer', () => {
     expect(onStopVoiceAudio).toHaveBeenCalled();
   });
 
-  it('shows only the native file picker action in the attachment menu', () => {
+  it('shows file, iOS media, and paste actions in the attachment menu', () => {
     const { container } = render(
       <Composer onSend={vi.fn()} onStop={vi.fn()} busy={false} onUploadFile={vi.fn()} />,
     );
@@ -150,14 +165,16 @@ describe('Composer', () => {
     fireEvent.click(screen.getByRole('button', { name: /Add attachment/i }));
 
     expect(screen.getByRole('menuitem', { name: /File/i })).toBeInTheDocument();
-    expect(screen.queryByText(/Take photo/i)).not.toBeInTheDocument();
-    expect(screen.queryByText(/Photo or video/i)).not.toBeInTheDocument();
+    expect(screen.getByRole('menuitem', { name: /Photos/i })).toBeInTheDocument();
+    expect(screen.getByRole('menuitem', { name: /Camera/i })).toBeInTheDocument();
+    expect(screen.getByRole('menuitem', { name: /Paste/i })).toBeInTheDocument();
 
-    const input = container.querySelector('input[type="file"]');
-    expect(input).toBeInTheDocument();
-    expect(input).toHaveAttribute('multiple');
-    expect(input).not.toHaveAttribute('accept');
-    expect(input).not.toHaveAttribute('capture');
+    const fileInput = container.querySelector('input[type="file"]:not([accept])');
+    const photosInput = container.querySelector('input[accept="image/*,video/*"]');
+    const cameraInput = container.querySelector('input[accept="image/*"][capture="environment"]');
+    expect(fileInput).toHaveAttribute('multiple');
+    expect(photosInput).toHaveAttribute('multiple');
+    expect(cameraInput).not.toHaveAttribute('multiple');
   });
 
   it('uploads a selected file and submits the returned file reference', async () => {

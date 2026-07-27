@@ -39,6 +39,9 @@ export type IconName =
   | 'archive'
   | 'logout'
   | 'copy'
+  | 'clipboard'
+  | 'camera'
+  | 'photos'
   | 'more';
 
 interface IconProps extends Omit<SVGProps<SVGSVGElement>, 'ref'> {
@@ -139,6 +142,21 @@ const ICONS: Record<IconName, IconPart[]> = {
   copy: [
     ['rect', { x: 9, y: 9, width: 11, height: 11, rx: 2 }],
     ['path', { d: 'M5 15V5a2 2 0 0 1 2-2h10' }],
+  ],
+  clipboard: [
+    ['rect', { x: 5, y: 4, width: 14, height: 17, rx: 2 }],
+    ['path', { d: 'M9 4V3a3 3 0 0 1 6 0v1' }],
+    'M9 10h6',
+    'M9 14h4',
+  ],
+  camera: [
+    ['path', { d: 'M4 8h3l1.5-2h9L18 8h2a2 2 0 0 1 2 2v8a2 2 0 0 1-2 2H4a2 2 0 0 1-2-2v-8a2 2 0 0 1 2-2z' }],
+    ['circle', { cx: 12, cy: 14, r: 3.5 }],
+  ],
+  photos: [
+    ['rect', { x: 3, y: 6, width: 14, height: 14, rx: 2 }],
+    ['rect', { x: 7, y: 3, width: 14, height: 14, rx: 2 }],
+    'm9.5 14 2.2-2.2 2.1 2.1 2.2-2.2 2 2',
   ],
   more: [
     ['circle', { cx: 12, cy: 5, r: 1.4 }],

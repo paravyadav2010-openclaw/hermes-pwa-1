@@ -929,23 +929,13 @@ function CodeBlock({ language, children }: { language?: string; children?: React
       'div',
       { className: 'hm-code-block__header' },
       createElement('span', { className: 'hm-code-block__lang' }, lang),
-      createElement(
-        'button',
-        {
-          type: 'button',
-          className: `hm-code-block__copy${copied ? ' hm-code-block__copy--done' : ''}`,
-          onClick: () => void handleCopy(),
-          'aria-label': copied ? 'Copied' : 'Copy code',
-          title: copied ? 'Copied' : 'Copy',
-        },
-        copied ? 'Copied' : 'Copy',
-      ),
+      copied ? createElement('span', { className: 'hm-code-block__copy-feedback' }, 'Copied') : null,
     ),
     createElement(
       'pre',
       {
         className: 'hm-code-block__pre',
-        onDoubleClick: () => void handleCopy(),
+        onClick: () => void handleCopy(),
       },
       createElement('code', null, children),
     ),
@@ -995,11 +985,7 @@ function InlineCode({ children, ...props }: HTMLAttributes<HTMLElement>) {
       'aria-label': copied ? 'Copied' : `Copy ${text}`,
     },
     createElement('span', { className: 'hm-copyable__text' }, children),
-    createElement(
-      'span',
-      { className: 'hm-copyable__badge', 'aria-hidden': true },
-      copied ? 'Copied' : 'Copy',
-    ),
+    copied ? createElement('span', { className: 'hm-copyable__copy-feedback', 'aria-hidden': true }, 'Copied') : null,
   );
 }
 

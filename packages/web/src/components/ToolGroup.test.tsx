@@ -1,5 +1,5 @@
 import { describe, expect, it, vi } from 'vitest';
-import { fireEvent, render, screen } from '@testing-library/react';
+import { fireEvent, render, screen, waitFor } from '@testing-library/react';
 import { ToolRow, ToolGroup } from './ToolGroup';
 import type { RpcClient } from '@hermes-pwa/core';
 
@@ -80,6 +80,24 @@ describe('ToolGroup', () => {
     fireEvent.click(screen.getByRole('button', { name: /1 tool/i }));
     expect(screen.getByRole('button', { name: /Ran · git status --short/i })).toBeInTheDocument();
     expect(screen.queryByText('M app.tsx')).not.toBeInTheDocument();
+  });
+
+  it('uses an icon-only output copy control, then briefly confirms copying', async () => {
+    const writeText = vi.fn().mockResolvedValue(undefined);
+    Object.defineProperty(navigator, 'clipboard', { configurable: true, value: { writeText } });
+    render(
+      <ToolRow
+        standalone
+        rpc={rpcMock}
+        tool={{ id: 'copy-output', name: 'terminal', input: { command: 'echo hello' }, output: 'hello' }}
+      />,
+    );
+
+    const copy = screen.getByRole('button', { name: 'Copy output' });
+    expect(copy.querySelector('svg')).toBeTruthy();
+    fireEvent.click(copy);
+    await waitFor(() => expect(writeText).toHaveBeenCalledWith('hello'));
+    expect(screen.getByRole('button', { name: 'Copied' })).toHaveTextContent('Copied');
   });
 
   it('bounds long tool lists only while the group body is open (user-clicked)', () => {

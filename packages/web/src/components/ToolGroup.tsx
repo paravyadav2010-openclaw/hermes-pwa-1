@@ -105,7 +105,7 @@ export function ToolRow({ tool, rpc: _rpc, streaming, onOpenChange, standalone =
               aria-label={copied ? 'Copied' : 'Copy output'}
               title={copied ? 'Copied' : 'Copy'}
             >
-              {copied ? 'Copied' : 'Copy'}
+              {copied ? 'Copied' : <Icon name="copy" size={14} />}
             </button>
           </div>
           <pre className="hm-tool-group__row-output">{view.detail}</pre>

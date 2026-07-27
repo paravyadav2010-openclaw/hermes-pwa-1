@@ -180,6 +180,7 @@ export function Composer({
   const hasText = text.trim().length > 0;
   const hasPayload = hasText || attachments.some((a) => !a.uploading && !a.error && a.path);
   const slashPaletteOpen = shouldShowSlashPalette(text) && Boolean(slashCommandsRpc) && slashSuppressedText !== text;
+  const canPasteClipboard = Boolean(navigator.clipboard?.readText);
 
   const handleTranscript = useCallback((transcript: string) => {
     setText((prev) => {
@@ -190,6 +191,26 @@ export function Composer({
 
   const focusInput = useCallback(() => {
     textareaRef.current?.focus();
+  }, []);
+
+  const pasteClipboardIntoComposer = useCallback(() => {
+    const input = textareaRef.current;
+    if (!input || !navigator.clipboard?.readText) return;
+    const start = input.selectionStart ?? input.value.length;
+    const end = input.selectionEnd ?? start;
+
+    void navigator.clipboard.readText().then((clipboardText) => {
+      if (!clipboardText) return;
+      setText((current) => `${current.slice(0, start)}${clipboardText}${current.slice(end)}`);
+      setSlashSuppressedText(undefined);
+      window.requestAnimationFrame(() => {
+        input.focus();
+        const caret = start + clipboardText.length;
+        input.setSelectionRange(caret, caret);
+      });
+    }).catch(() => {
+      // Clipboard permission can be denied by the browser; leave the draft unchanged.
+    });
   }, []);
 
   const voiceRecorder = useVoiceRecorder({
@@ -499,12 +520,18 @@ export function Composer({
           type="button"
           className="hm-composer__action"
           onClick={() => setAttachMenuOpen((v) => !v)}
-          disabled={isRecording || isVoiceBusy || !onUploadFile}
+          disabled={isRecording || isVoiceBusy || (!onUploadFile && !canPasteClipboard)}
           aria-label="Add attachment"
         >
           <Icon name="plus" size={19} />
         </button>
-        <AttachMenu open={attachMenuOpen} onClose={() => setAttachMenuOpen(false)} onFiles={handleFilesSelected} />
+        <AttachMenu
+          open={attachMenuOpen}
+          onClose={() => setAttachMenuOpen(false)}
+          onFiles={handleFilesSelected}
+          allowFiles={Boolean(onUploadFile)}
+          onPaste={pasteClipboardIntoComposer}
+        />
 
         <textarea
           ref={textareaRef}

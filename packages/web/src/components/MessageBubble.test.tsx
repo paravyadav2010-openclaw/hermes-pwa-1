@@ -46,6 +46,40 @@ describe('MessageBubble', () => {
     expect(screen.getByText('Hello').closest('.hm-message')).toHaveClass('hm-message--reveal');
   });
 
+  it('copies a user prompt on double click', async () => {
+    const writeText = vi.fn().mockResolvedValue(undefined);
+    Object.defineProperty(navigator, 'clipboard', { configurable: true, value: { writeText } });
+    render(<MessageBubble rpc={rpcMock} message={{ id: 'copy-user', role: 'user', text: 'Copy this prompt', createdAt: undefined }} />);
+
+    fireEvent.doubleClick(screen.getByText('Copy this prompt'));
+    await waitFor(() => expect(writeText).toHaveBeenCalledWith('Copy this prompt'));
+    expect(screen.getByRole('status')).toHaveTextContent('Copied');
+  });
+
+  it('keeps user timestamp and copy control outside the message bubble', () => {
+    render(<MessageBubble rpc={rpcMock} message={{ id: 'user-meta', role: 'user', text: 'Hello', createdAt: Date.now() }} />);
+
+    const bubble = screen.getByText('Hello').closest('.hm-message--user') as HTMLElement | null;
+    const copy = screen.getByRole('button', { name: /Copy response/i });
+    const userMessage = copy.closest('.hm-user-message') as HTMLElement | null;
+    expect(bubble).toBeTruthy();
+    expect(bubble).not.toContainElement(copy);
+    expect(userMessage).toContainElement(bubble);
+  });
+
+  it('uses an icon-only code copy control, then briefly confirms copying', async () => {
+    const writeText = vi.fn().mockResolvedValue(undefined);
+    Object.defineProperty(navigator, 'clipboard', { configurable: true, value: { writeText } });
+    render(<MessageBubble rpc={rpcMock} message={{ id: 'copy-code', role: 'assistant', text: '```sh\necho hello\n```', createdAt: undefined }} />);
+
+    const code = screen.getByText('echo hello').closest('pre');
+    expect(code).toBeTruthy();
+    expect(code?.querySelector('svg')).toBeNull();
+    fireEvent.click(code!);
+    await waitFor(() => expect(writeText).toHaveBeenCalledWith('echo hello'));
+    expect(screen.getByText('Copied')).toBeInTheDocument();
+  });
+
   it('renders steer messages as centered, labelled low-emphasis transcript events', () => {
     render(<MessageBubble rpc={rpcMock} message={{ id: 'steer-1', role: 'user', text: 'Focus on tests.', createdAt: undefined }} />);
 

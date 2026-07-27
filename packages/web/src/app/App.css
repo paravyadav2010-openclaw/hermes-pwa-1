@@ -6955,3 +6955,91 @@ button.hm-copyable {
   gap: 2px;
   flex: 1;
 }
+
+/* Copy controls: compact SVG at rest; explicit feedback only after a copy. */
+.hm-user-message {
+  align-self: flex-end;
+  display: flex;
+  flex-direction: column;
+  width: fit-content;
+  max-width: min(86%, 520px);
+}
+
+.hm-user-message--steer {
+  align-self: center;
+}
+
+.hm-user-message .hm-message__meta {
+  justify-content: flex-end;
+}
+
+.hm-user-message:hover .hm-message__meta,
+.hm-user-message:focus-within .hm-message__meta {
+  opacity: 1;
+  pointer-events: auto;
+}
+
+.hm-copyable__copy-icon,
+.hm-code-block__copy-icon {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+}
+
+.hm-copyable__copy-feedback,
+.hm-code-block__copy-feedback {
+  flex: 0 0 auto;
+  margin-left: 0.15em;
+  padding: 0.05em 0.35em;
+  border-radius: 999px;
+  background: color-mix(in srgb, var(--hm-color-surface) 75%, transparent);
+  color: var(--hm-color-success);
+  font-family: var(--hm-font-sans);
+  font-size: 0.78em;
+  font-weight: 650;
+  letter-spacing: 0.02em;
+  line-height: 1.2;
+  white-space: nowrap;
+  animation: hm-copy-feedback 1.5s ease forwards;
+}
+
+@keyframes hm-copy-feedback {
+  0%, 72% { opacity: 1; }
+  100% { opacity: 0; }
+}
+
+.hm-message--assistant .hm-code-block__copy {
+  min-width: 28px;
+  padding: 4px;
+}
+
+.hm-tool-group__row-copy {
+  min-width: 28px;
+  min-height: 28px;
+  padding: 4px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+}
+
+.hm-tool-group__row-copy--done {
+  animation: hm-copy-feedback 1.5s ease forwards;
+}
+
+.hm-user-message__copy-feedback {
+  align-self: flex-end;
+  margin-top: 2px;
+  padding: 2px 7px;
+  border-radius: 999px;
+  background: var(--hm-color-success-bg);
+  color: var(--hm-color-success);
+  font-size: 10px;
+  font-weight: 650;
+  line-height: 1.2;
+  animation: hm-user-copy-feedback 3s ease forwards;
+}
+
+@keyframes hm-user-copy-feedback {
+  0%, 82% { opacity: 1; }
+  100% { opacity: 0; }
+}
