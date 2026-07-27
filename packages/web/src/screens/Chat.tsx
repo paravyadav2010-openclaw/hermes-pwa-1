@@ -15,6 +15,7 @@ import {
 import { MessageBubble } from '../components/MessageBubble';
 import { Composer } from '../components/Composer';
 import { ProfileModelBar } from '../components/ProfileModelBar';
+import { TodoPanel } from '../components/TodoPanel';
 import {
   MAX_ATTACHMENT_BYTES,
   attachmentTooLargeMessage,
@@ -136,6 +137,12 @@ export function Chat({ rpc, rest, onNavigate }: ChatProps) {
     () => [sessionId, storedSessionId].filter((value): value is string => Boolean(value)),
     [sessionId, storedSessionId],
   );
+  const latestTodoTool = useMemo(() => {
+    const lastMessage = messages.at(-1);
+    return lastMessage?.role === 'assistant'
+      ? lastMessage.toolCalls?.filter((tool) => tool.name === 'todo' && typeof tool.output === 'string').at(-1)
+      : undefined;
+  }, [messages]);
 
   const enqueuePrompt = useCallback((text: string, options: { front?: boolean } = {}) => {
     if (options.front) {
@@ -894,6 +901,7 @@ export function Chat({ rpc, rest, onNavigate }: ChatProps) {
         {error ? <div className="hm-warning-banner hm-warning-banner--error">{error}</div> : null}
       </div>
       <div className="hm-chat-dock">
+        {streaming && latestTodoTool && <div className="hm-chat__todo-dock"><TodoPanel tool={latestTodoTool} /></div>}
         <Composer
           onSend={handleSend}
           slashCommandsRpc={rpc}

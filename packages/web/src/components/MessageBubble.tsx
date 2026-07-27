@@ -215,13 +215,15 @@ function MessageBubbleView({ message, rpc, isLast, streaming, liveStatus, liveFa
   }
 
   const isUser = message.role === 'user';
+  const isSteer = isUser && message.id.startsWith('steer-');
 
   if (isUser) {
     const preprocessed = preprocessMediaRefs(message.text);
     const { images: imageUrls, videos: videoUrls } = useMemo(() => extractMediaUrls(preprocessed), [preprocessed]);
     const textOnly = useMemo(() => stripImages(preprocessed), [preprocessed]);
     return (
-      <div className="hm-message hm-message--user hm-message--reveal">
+      <div className={`hm-message hm-message--user${isSteer ? ' hm-message--steer' : ''} hm-message--reveal`}>
+        {isSteer && <span className="hm-message__steer-label">Steer message</span>}
         {textOnly && <ReactMarkdown remarkPlugins={MARKDOWN_REMARK_PLUGINS} components={MARKDOWN_COMPONENTS}>{textOnly}</ReactMarkdown>}
         {videoUrls.length > 0 && (
           <div className="hm-video-grid">
@@ -250,46 +252,41 @@ function MessageBubbleView({ message, rpc, isLast, streaming, liveStatus, liveFa
 
   const active = Boolean(streaming && isLast !== false);
   const showCaret = active && message.role === 'assistant';
-  const completedTodoTool = message.toolCalls?.filter((t) => t.name === 'todo' && typeof t.output === 'string').at(-1);
+  // A completed plan belongs only to the current turn. Historical todo state
+  // must not keep resurfacing every time an older transcript is rendered.
+  const completedTodoTool = isLast !== false && !active
+    ? message.toolCalls?.filter((tool) => tool.name === 'todo' && typeof tool.output === 'string').at(-1)
+    : undefined;
   const recoveredTool = recoveredApprovalTool(message, isLast, pendingApprovals, activeSessionIds);
   const otherTools = [
     ...(message.toolCalls?.filter((t) => t.name !== 'todo') ?? []),
     ...(recoveredTool ? [recoveredTool] : []),
   ];
   const hasActions = Boolean(message.thinking?.trim()) || Boolean(completedTodoTool) || otherTools.length > 0;
-  const showHeaderStatus = active && Boolean(liveStatus?.trim());
+  const showLiveStatus = active && Boolean(liveStatus?.trim());
   const statusFace = liveFace?.trim();
 
   return (
     <div className="hm-message hm-message--assistant hm-message--reveal">
-      <div className="hm-message__header">
-        <span className="hm-message__avatar">
-          <img src="./icons/icon-192.png" alt="" aria-hidden="true" />
+      {showLiveStatus && (
+        <span className="hm-message__status" role="status" aria-live="polite">
+          {statusFace ? <span className="hm-message__status-face" aria-hidden="true">{statusFace}</span> : null}
+          <span>{liveStatus}</span>
+          <span className="hm-message__activity-dots" aria-label="Assistant is active" aria-hidden="true">
+            <span />
+            <span />
+            <span />
+          </span>
         </span>
-        {showHeaderStatus ? (
-          <span className="hm-live-status hm-live-status--inline" role="status" aria-live="polite">
-            {statusFace ? <span className="hm-live-status__face" aria-hidden="true">{statusFace}</span> : null}
-            <span className="hm-live-status__text">{liveStatus}</span>
-            <span className="hm-live-status__dots" aria-hidden="true">
-              <span />
-              <span />
-              <span />
-            </span>
-          </span>
-        ) : (
-          <span className="hm-message__activity" aria-label={active ? 'Assistant is active' : 'Assistant response complete'}>
-            {active ? (
-              <span className="hm-message__activity-dots" aria-hidden="true">
-                <span />
-                <span />
-                <span />
-              </span>
-            ) : (
-              <span className="hm-message__activity-dot" aria-hidden="true" />
-            )}
-          </span>
-        )}
-      </div>
+      )}
+
+      {!showLiveStatus && active && !message.text && !hasActions && (
+        <span className="hm-message__activity-dots hm-message__activity-dots--standalone" aria-label="Assistant is active">
+          <span />
+          <span />
+          <span />
+        </span>
+      )}
 
       {hasActions && (
         <div className="hm-message__actions">
@@ -308,9 +305,7 @@ function MessageBubbleView({ message, rpc, isLast, streaming, liveStatus, liveFa
           ))}
 
           {completedTodoTool && (
-            <div className="hm-message__todos">
-              <TodoPanel tool={completedTodoTool} />
-            </div>
+            <div className="hm-message__todos"><TodoPanel tool={completedTodoTool} /></div>
           )}
 
           {otherTools.length > 0 && <ToolGroup tools={otherTools} rpc={rpc} streaming={active} />}

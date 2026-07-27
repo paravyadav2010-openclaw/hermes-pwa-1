@@ -1428,6 +1428,22 @@ describe('useChatStore', () => {
     expect(useChatStore.getState().messages[0]?.toolCalls).toBeUndefined();
   });
 
+  it('keeps an accepted steer prompt visible in the active transcript', async () => {
+    const rpc = { request: vi.fn(async () => ({ status: 'queued' })) } as unknown as RpcClient;
+    useChatStore.setState({
+      sessionId: 'live-1',
+      streaming: true,
+      messages: [{ id: 'a-1', role: 'assistant', text: 'working', createdAt: undefined }],
+    });
+
+    await expect(useChatStore.getState().steer(rpc, 'Prioritize the error path.')).resolves.toBe(true);
+
+    expect(useChatStore.getState().messages.at(-1)).toMatchObject({
+      role: 'user',
+      text: 'Prioritize the error path.',
+    });
+  });
+
   it('clear resets everything', () => {
     useChatStore.setState({ sessionId: 's-1', messages: [{ id: '1', role: 'user', text: 'x', createdAt: undefined }], streaming: true });
     useChatStore.getState().clear();

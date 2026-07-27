@@ -1658,7 +1658,17 @@ export const useChatStore = create<ChatStore>((set, get) => ({
       const raw = await rpc.request('session.steer', { session_id: sessionId, text });
       const status = raw && typeof raw === 'object' ? (raw as Record<string, unknown>).status : undefined;
       const accepted = status === undefined || status === 'queued';
-      set({ error: accepted ? undefined : 'Steer rejected — message queued for next turn.' });
+      if (accepted) {
+        const now = Date.now();
+        const next = {
+          error: undefined,
+          messages: [...get().messages, { id: `steer-${now}`, role: 'user' as const, text, createdAt: now }],
+        };
+        set(next);
+        persistActiveSession({ ...get(), ...next });
+      } else {
+        set({ error: 'Steer rejected — message queued for next turn.' });
+      }
       return accepted;
     } catch (err) {
       set({ error: userFacingChatError(err, 'Steer failed.') });

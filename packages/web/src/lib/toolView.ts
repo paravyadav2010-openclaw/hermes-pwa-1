@@ -36,6 +36,7 @@ const TOOL_META: Record<string, ToolMeta> = {
   image_generate: { done: 'Generated image', pending: 'Generating image', icon: 'file', tone: 'image' },
   list_files: { done: 'Listed files', pending: 'Listing files', icon: 'file', tone: 'file' },
   patch: { done: 'Patched file', pending: 'Patching file', icon: 'edit', tone: 'file' },
+  process: { done: 'Process finished', pending: 'Running process', icon: 'terminal', tone: 'terminal' },
   read_file: { done: 'Read file', pending: 'Reading file', icon: 'file', tone: 'file' },
   search_files: { done: 'Searched files', pending: 'Searching files', icon: 'search', tone: 'file' },
   session_search_recall: { done: 'Searched session history', pending: 'Searching session history', icon: 'search', tone: 'agent' },
@@ -199,21 +200,8 @@ function toolSubtitle(tool: ToolCall, argsRecord: Record<string, unknown>, resul
   }
 
   if (toolName === 'terminal' || toolName === 'execute_code') {
-    const output = firstStringField(resultRecord, ['output', 'stdout', 'stderr']);
-    const rawOutput = typeof tool.output === 'string' ? tool.output : '';
-    const lines = Array.isArray(resultRecord.lines)
-      ? (resultRecord.lines as unknown[]).filter((line): line is string => typeof line === 'string').join('\n')
-      : '';
-    const previewSource = (output || lines || rawOutput).trim();
-    if (previewSource) {
-      const firstMeaningfulLine = previewSource
-        .split('\n')
-        .map((line) => line.trim())
-        .find((line) => line.length > 0);
-      if (firstMeaningfulLine) return compactPreview(firstMeaningfulLine, 160);
-    }
     const command = firstStringField(argsRecord, ['command', 'code']) || contextValue(argsRecord);
-    return command ? compactPreview(command, 120) : 'Executed command';
+    return command ? compactPreview(command, 120) : 'Command';
   }
 
   if (toolName === 'read_file' || toolName === 'write_file' || toolName === 'edit_file') {
@@ -255,11 +243,7 @@ function dynamicTitle(tool: ToolCall, args: Record<string, unknown>, result: Rec
   }
 
   if (tool.name === 'terminal' || tool.name === 'execute_code') {
-    const command = firstStringField(args, ['command', 'code']) || contextValue(args);
-    if (command) {
-      const verbText = tool.name === 'execute_code' ? verb('Running code', 'Ran code') : verb('Running', 'Ran');
-      return `${verbText} · ${compactPreview(command, 160)}`;
-    }
+    return tool.name === 'execute_code' ? verb('Running code', 'Ran code') : verb('Running command', 'Ran command');
   }
 
   if (tool.name === 'read_file') {

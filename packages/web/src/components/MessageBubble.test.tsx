@@ -46,6 +46,14 @@ describe('MessageBubble', () => {
     expect(screen.getByText('Hello').closest('.hm-message')).toHaveClass('hm-message--reveal');
   });
 
+  it('renders steer messages as centered, labelled low-emphasis transcript events', () => {
+    render(<MessageBubble rpc={rpcMock} message={{ id: 'steer-1', role: 'user', text: 'Focus on tests.', createdAt: undefined }} />);
+
+    const message = screen.getByText('Focus on tests.').closest('.hm-message');
+    expect(message).toHaveClass('hm-message--steer');
+    expect(screen.getByText('Steer message')).toBeInTheDocument();
+  });
+
   it('renders assistant message with markdown', () => {
     render(<MessageBubble rpc={rpcMock} message={{ id: '2', role: 'assistant', text: '# Title\n\nparagraph', createdAt: undefined }} />);
     expect(screen.getByText('Title')).toBeInTheDocument();
@@ -101,7 +109,7 @@ describe('MessageBubble', () => {
     expect(screen.queryByText(/streaming|done/i)).not.toBeInTheDocument();
   });
 
-  it('renders tool calls when present', () => {
+  it('renders tool calls as compact individual rows', () => {
     render(
       <MessageBubble
         rpc={rpcMock}
@@ -114,8 +122,8 @@ describe('MessageBubble', () => {
         }}
       />,
     );
-    expect(screen.getByText('Tool actions')).toBeInTheDocument();
     expect(screen.getByText(/Search/)).toBeInTheDocument();
+    expect(screen.queryByText('Tool actions')).not.toBeInTheDocument();
   });
 
   it('keeps inline approval visible for a pending tool after restore clears streaming', () => {
@@ -316,7 +324,7 @@ describe('MessageBubble', () => {
     expect(screen.queryByText('Partial start state')).not.toBeInTheDocument();
   });
 
-  it('keeps ordinary assistant text next to todo tool panel', () => {
+  it('renders a completed todo panel inline after the user prompt', () => {
     render(
       <MessageBubble
         rpc={rpcMock}
@@ -342,7 +350,7 @@ describe('MessageBubble', () => {
     expect(screen.getByText('OK. The last task is not marked in the list.')).toBeInTheDocument();
   });
 
-  it('renders only the latest todo tool panel from repeated todo updates', () => {
+  it('renders only the latest completed todo panel inline', () => {
     const { container } = render(
       <MessageBubble
         rpc={rpcMock}
@@ -372,6 +380,24 @@ describe('MessageBubble', () => {
     expect(screen.getAllByText('Current state').length).toBeGreaterThan(0);
   });
 
+  it('does not resurface a completed todo panel from an old turn', () => {
+    render(
+      <MessageBubble
+        rpc={rpcMock}
+        isLast={false}
+        message={{
+          id: 'old-plan',
+          role: 'assistant',
+          text: 'Old plan completed.',
+          createdAt: undefined,
+          toolCalls: [{ id: 'todo-old', name: 'todo', output: JSON.stringify({ todos: [{ id: 'old', content: 'Old task', status: 'completed' }] }) }],
+        }}
+      />,
+    );
+
+    expect(screen.queryByText('Old task')).not.toBeInTheDocument();
+  });
+
   it('keeps ordinary markdown checklists when they are not a todo summary', () => {
     render(
       <MessageBubble
@@ -389,7 +415,7 @@ describe('MessageBubble', () => {
     expect(screen.getByText(/item stays as regular markdown/)).toBeInTheDocument();
   });
 
-  it('renders app icon and inline live status with animated activity dots', () => {
+  it('renders inline live status with animated activity dots without assistant chrome', () => {
     const { container } = render(
       <MessageBubble
         rpc={rpcMock}
@@ -401,15 +427,10 @@ describe('MessageBubble', () => {
       />,
     );
 
-    expect(container.querySelector('.hm-live-status__face')).toHaveTextContent('(¬‿¬)');
-    expect(container.querySelector('.hm-live-status__text')).toHaveTextContent('computing');
-    expect(container.querySelector('.hm-live-status__dots')).toBeInTheDocument();
-    const liveParts = Array.from(container.querySelector('.hm-live-status')?.children ?? []).map((node) =>
-      (node as HTMLElement).className,
-    );
-    expect(liveParts).toEqual(['hm-live-status__face', 'hm-live-status__text', 'hm-live-status__dots']);
-    expect(container.querySelectorAll('.hm-live-status__dots span')).toHaveLength(3);
-    expect(container.querySelector('.hm-message__avatar img')).toHaveAttribute('src', './icons/icon-192.png');
-    expect(screen.queryByText('Hermes')).not.toBeInTheDocument();
+    expect(container.querySelector('.hm-message__status-face')).toHaveTextContent('(¬‿¬)');
+    expect(container.querySelector('.hm-message__status')).toHaveTextContent('computing');
+    expect(container.querySelector('.hm-message__status .hm-message__activity-dots')).toBeInTheDocument();
+    expect(container.querySelectorAll('.hm-message__status .hm-message__activity-dots span')).toHaveLength(3);
+    expect(container.querySelector('.hm-message__avatar')).toBeNull();
   });
 });

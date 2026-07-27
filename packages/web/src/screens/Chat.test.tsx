@@ -150,7 +150,7 @@ describe('Chat', () => {
     expect(screen.getByText('Cached reply')).toBeInTheDocument();
   });
 
-  it('renders todo only from authoritative tool.complete todos, not tool.start input', async () => {
+  it('docks a todo only while its turn is active, then returns it to the transcript', async () => {
     core.useConnectionStore.setState({ state: 'reconnecting', error: undefined });
     core.useChatStore.setState({
       sessionId: 's-1',
@@ -183,9 +183,15 @@ describe('Chat', () => {
     });
 
     await waitFor(() => expect(screen.getAllByText('Final complete state').length).toBeGreaterThan(0));
+    expect(document.querySelector('.hm-chat__todo-dock')).toHaveTextContent('Final complete state');
     expect(core.useChatStore.getState().messages[0]?.toolCalls?.[0]?.output).toBe(
       JSON.stringify({ todos: [{ id: 'final', content: 'Final complete state', status: 'completed' }] }),
     );
+
+    core.useChatStore.getState().markIdle();
+
+    await waitFor(() => expect(document.querySelector('.hm-chat__todo-dock')).toBeNull());
+    expect(document.querySelector('.hm-message__todos')).toHaveTextContent('Final complete state');
   });
 
   it('shows local thinking status as live activity, not inside Thinking body', async () => {
@@ -962,8 +968,7 @@ describe('Chat', () => {
 
     render(<Chat rpc={rpcMock} rest={restMock} />);
 
-    expect(screen.getByText('Tool actions')).toBeInTheDocument();
-    expect(screen.getByText(/1 step · done/i)).toBeInTheDocument();
+    expect(screen.queryByText('Tool actions')).not.toBeInTheDocument();
     expect(screen.getByText(/Ran command/i)).toBeInTheDocument();
     expect(screen.getByText(/whoami=stasstep/i)).toBeInTheDocument();
   });
