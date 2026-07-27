@@ -168,6 +168,7 @@ export const useConnectionStore = create<ConnectionStore>((set, get) => {
   let connectedHealthInFlight = false;
   let readyHandler: RpcEventHandler | null = null;
   let wsEpoch = 0;
+  let restoreActiveChatAfterForeground = false;
 
   function assertRefs(): { rest: RestClient; ws: WsConnection; rpc: RpcClient } {
     if (!restRef || !wsRef || !rpcRef) {
@@ -221,6 +222,22 @@ export const useConnectionStore = create<ConnectionStore>((set, get) => {
     clearReadyWatchdog();
     removeReadyListener();
     wsAttempt = 0;
+    // A forced foreground reconnect discards the suspended socket before its
+    // close callback can run. Its streaming flag is therefore stale and would
+    // block the durable-history catch-up after the replacement connection.
+    if (useChatStore.getState().streaming) {
+      useChatStore.getState().markIdle();
+    }
+    // REST history is available independently of the replacement WebSocket.
+    // Start this fetch now rather than waiting for gateway.ready, which Safari
+    // can delay after an iOS foreground transition.
+    const chat = useChatStore.getState();
+    if (restRef && (chat.storedSessionId || chat.sessionId)) {
+      void chat.refreshHistory(restRef, chat.cacheProfile).catch(() => {
+        // The post-ready durable resume remains the fallback and reattaches events.
+      });
+    }
+    restoreActiveChatAfterForeground = true;
     // Safari may retain a "connected" socket object after backgrounding even
     // when its network path is gone. Ignore callbacks from that old socket.
     wsEpoch += 1;
@@ -305,6 +322,16 @@ export const useConnectionStore = create<ConnectionStore>((set, get) => {
         wsAttempt = 0;
         set({ state: 'connected', error: undefined });
         removeReadyListener();
+        if (restoreActiveChatAfterForeground) {
+          restoreActiveChatAfterForeground = false;
+          const chat = useChatStore.getState();
+          const durableSessionId = chat.storedSessionId;
+          if (durableSessionId) {
+            void chat.resumeSessionIntoChat(rest, rpc, durableSessionId, chat.cacheProfile).catch(() => {
+              // The REST/Chat recovery paths keep the cached transcript if resume fails.
+            });
+          }
+        }
       };
       rpc.events.addEventListener('gateway.ready', readyHandler);
     } catch (err) {
@@ -445,6 +472,7 @@ export const useConnectionStore = create<ConnectionStore>((set, get) => {
 
     disconnect() {
       resetConnectionState();
+      restoreActiveChatAfterForeground = false;
       wsEpoch += 1;
       if (wsRef) {
         wsRef.close();

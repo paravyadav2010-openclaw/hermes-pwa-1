@@ -35,16 +35,16 @@ interface AppShellProps {
 type SourceFilter = 'all' | string;
 const UPDATE_DISMISSED_STORAGE_KEY = 'hermes-pwa:update-dismissed-version';
 
-const Chat = lazy(() => import('../screens/Chat').then((module) => ({ default: module.Chat })));
+import { Chat } from '../screens/Chat';
 const Activity = lazy(() => import('../screens/Activity').then((module) => ({ default: module.Activity })));
-const Projects = lazy(() => import('../screens/Projects').then((module) => ({ default: module.Projects })));
+import { Projects } from '../screens/Projects';
 const Agents = lazy(() => import('../screens/Agents').then((module) => ({ default: module.Agents })));
 const Profiles = lazy(() => import('../screens/Profiles').then((module) => ({ default: module.Profiles })));
-const Sessions = lazy(() => import('../screens/Sessions').then((module) => ({ default: module.Sessions })));
+import { Sessions } from '../screens/Sessions';
 const CommandCenter = lazy(() => import('../screens/CommandCenter').then((module) => ({ default: module.CommandCenter })));
 const Cron = lazy(() => import('../screens/Cron').then((module) => ({ default: module.Cron })));
 const Artifacts = lazy(() => import('../screens/Artifacts').then((module) => ({ default: module.Artifacts })));
-const Settings = lazy(() => import('../screens/Settings').then((module) => ({ default: module.Settings })));
+import { Settings } from '../screens/Settings';
 
 const DRAWER_FOCUSABLE_SELECTOR = [
   'a[href]',
@@ -236,6 +236,10 @@ function DrawerSessionRow({
   );
 }
 
+/** Tabs that participate in swipe navigation — in display order. */
+const TAB_ORDER: Screen[] = ['sessions', 'chat', 'home', 'kanban', 'settings'];
+const SWIPE_TAB_INDICES = new Map(TAB_ORDER.map((s, i) => [s, i]));
+
 export function AppShell({ connectionState, rpc, rest, onRetry }: AppShellProps) {
   const [screen, setScreen] = useState<Screen>(() => getInitialScreen());
   const [drawerOpen, setDrawerOpen] = useState(false);
@@ -282,6 +286,145 @@ export function AppShell({ connectionState, rpc, rest, onRetry }: AppShellProps)
   const pendingRefreshInFlightRef = useRef(false);
   const chatRecoveryInFlightRef = useRef(false);
   const pushSyncInFlightRef = useRef(false);
+
+  // ── Dual-mount push animation ────────────────────────────────────────
+  /** Ref to the screen-stack div we position via inline transform. */
+  const stackRef = useRef<HTMLDivElement>(null);
+  /** Screen being revealed (rendered in the second frame, off-screen). */
+  const [nextScreen, setNextScreen] = useState<Screen | null>(null);
+  /** Synchronous mirror used by touch callbacks before React commits state. */
+  const nextScreenRef = useRef<Screen | null>(null);
+  /** Guards against concurrent animations. */
+  const isAnimatingRef = useRef(false);
+  /** Direction of the current/pending swipe. */
+  const swipeDirRef = useRef<'left' | 'right'>('left');
+  /** Latest finger offset during drag (for onSwipeEnd threshold check). */
+  const swipeXEndRef = useRef(0);
+  /** Captures the current screen name for gesture callbacks (avoid stale closures). */
+  const liveScreenRef = useRef(screen);
+  liveScreenRef.current = screen;
+
+  /** Start a push animation toward `target` in direction `dir`. */
+  const animateTo = useCallback((target: Screen, dir: 'left' | 'right') => {
+    isAnimatingRef.current = true;
+    swipeDirRef.current = dir;
+    nextScreenRef.current = target;
+    setNextScreen(target);
+    requestAnimationFrame(() => {
+      const s = stackRef.current;
+      if (!s) {
+        isAnimatingRef.current = false;
+        nextScreenRef.current = null;
+        setNextScreen(null);
+        return;
+      }
+      const targetX = dir === 'left' ? '-100%' : '100%';
+      s.style.transition = 'transform 300ms cubic-bezier(0.22, 1, 0.36, 1)';
+      s.style.transform = `translateX(${targetX})`;
+
+      let finished = false;
+      const finish = () => {
+        if (finished) return;
+        finished = true;
+        s.removeEventListener('transitionend', onEnd);
+        clearTimeout(fallbackTimer);
+        setScreen(target);
+        persistScreen(target);
+        requestAnimationFrame(() => {
+          nextScreenRef.current = null;
+          setNextScreen(null);
+          if (s) { s.style.transition = 'none'; s.style.transform = ''; }
+          isAnimatingRef.current = false;
+        });
+      };
+
+      const onEnd = () => {
+        s.removeEventListener('transitionend', onEnd);
+        clearTimeout(fallbackTimer);
+        finish();
+      };
+      s.addEventListener('transitionend', onEnd, { once: true });
+      // Fallback if transitionend never fires (JSDOM / no CSS transition).
+      const fallbackTimer = setTimeout(finish, 350);
+    });
+  }, []);
+
+  // ── Navigation (tap / drawer) ──────────────────────────────────────
+  const navigate = useCallback((s: Screen) => {
+    if (HIDDEN_ADMIN_SCREENS.has(s)) { s = 'home'; }
+    if (s === screen || isAnimatingRef.current) return;
+    setDrawerOpen(false);
+
+    const prevIdx = SWIPE_TAB_INDICES.get(screen);
+    const nextIdx = SWIPE_TAB_INDICES.get(s);
+    const canAnimate = prevIdx !== undefined && nextIdx !== undefined;
+
+    if (!canAnimate) {
+      setScreen(s);
+      persistScreen(s);
+      return;
+    }
+
+    const dir: 'left' | 'right' = nextIdx > prevIdx ? 'left' : 'right';
+    animateTo(s, dir);
+  }, [screen, animateTo]);
+
+  // ── Swipe gesture (drag-to-reveal + spring push) ───────────────────
+  useSwipeGesture(screenRef, {
+    onSwiping: (dx) => {
+      if (isAnimatingRef.current) return;
+      const stack = stackRef.current;
+      if (!stack) return;
+
+      // The first time we detect a clear directional drag, set up the
+      // entering screen so the user sees it being revealed.
+      const dir = dx < 0 ? 'left' : 'right';
+      if (nextScreenRef.current === null || swipeDirRef.current !== dir) {
+        const cur = liveScreenRef.current;
+        const currIdx = TAB_ORDER.indexOf(cur);
+        if (currIdx < 0) return;
+        const nextIdx = dir === 'left'
+          ? (currIdx + 1) % TAB_ORDER.length
+          : (currIdx - 1 + TAB_ORDER.length) % TAB_ORDER.length;
+        const target = TAB_ORDER[nextIdx];
+        if (!target || target === cur) return;
+        swipeDirRef.current = dir;
+        nextScreenRef.current = target;
+        setNextScreen(target);
+      }
+
+      // Track the finger with direct DOM transform (no React state =
+      // zero latency). Do not cap it: a capped surface feels detached
+      // from the user's finger before the release animation takes over.
+      swipeXEndRef.current = dx;
+      stack.style.transition = 'none';
+      stack.style.transform = `translateX(${dx}px)`;
+    },
+    onSwipeEnd: () => {
+      const stack = stackRef.current;
+      const target = nextScreenRef.current;
+      const dx = swipeXEndRef.current;
+      swipeXEndRef.current = 0;
+      if (!stack) return;
+
+      // If we never set up a target or barely moved, spring back.
+      if (!target || Math.abs(dx) < 60) {
+        stack.style.transition = 'transform 300ms cubic-bezier(0.22, 1, 0.36, 1)';
+        stack.style.transform = '';
+        setTimeout(() => {
+          nextScreenRef.current = null;
+          setNextScreen(null);
+        }, 310);
+        return;
+      }
+
+      // Past threshold — complete the push animation.
+      const dir = swipeDirRef.current;
+      animateTo(target, dir);
+    },
+  }, true);
+
+  // ── Side effects (unchanged) ────────────────────────────────────────
 
   useEffect(() => {
     persistScreen(screen);
@@ -546,28 +689,6 @@ export function AppShell({ connectionState, rpc, rest, onRetry }: AppShellProps)
     return () => document.removeEventListener('keydown', onKey);
   }, [drawerOpen]);
 
-  function navigate(s: Screen) {
-    if (HIDDEN_ADMIN_SCREENS.has(s)) {
-      s = 'home';
-    }
-    setScreen(s);
-    persistScreen(s);
-    setDrawerOpen(false);
-  }
-
-  const TAB_ORDER: Screen[] = ['sessions', 'chat', 'home', 'kanban', 'settings'];
-
-  useSwipeGesture(screenRef, {
-    onSwipeRight: () => {
-      const idx = TAB_ORDER.indexOf(screen);
-      if (idx >= 0) navigate(TAB_ORDER[(idx - 1 + TAB_ORDER.length) % TAB_ORDER.length]);
-    },
-    onSwipeLeft: () => {
-      const idx = TAB_ORDER.indexOf(screen);
-      if (idx >= 0) navigate(TAB_ORDER[(idx + 1) % TAB_ORDER.length]);
-    },
-  }, true);
-
   function handleNewSession() {
     startNewSession(activeName);
     navigate('chat');
@@ -619,6 +740,43 @@ export function AppShell({ connectionState, rpc, rest, onRetry }: AppShellProps)
     [filteredDrawerSessions, handleDrawerSession],
   );
 
+  // ── Render a screen by name ─────────────────────────────────────────
+  const renderScreenContent = useCallback((s: Screen): React.ReactNode => {
+    switch (s) {
+      case 'chat':
+        return <Chat key={activeName ?? 'default'} rpc={rpc} rest={rest} onNavigate={(s) => navigate(s as Screen)} />;
+      case 'sessions':
+        return <Sessions rpc={rpc} rest={rest} onSessionOpen={() => navigate('chat')} />;
+      case 'approvals':
+        return <Activity key={activeName ?? 'default'} rpc={rpc} />;
+      case 'kanban':
+        return <Projects key={activeName ?? 'default'} rest={rest} />;
+      case 'agents':
+        return <Agents key={activeName ?? 'default'} rpc={rpc} />;
+      case 'profiles':
+        return <Profiles key={activeName ?? 'default'} rest={rest} />;
+      case 'home':
+        return <Home key={activeName ?? 'default'} rpc={rpc} rest={rest} onNavigate={(s) => navigate(s as Screen)} />;
+      case 'command':
+        return <CommandCenter key={activeName ?? 'default'} rest={rest} />;
+      case 'cron':
+        return <Cron key={activeName ?? 'default'} rest={rest} />;
+      case 'artifacts':
+        return <Artifacts key={activeName ?? 'default'} rest={rest} />;
+      case 'settings':
+        return (
+          <Settings
+            key={activeName ?? 'default'}
+            rest={rest}
+            onNavigate={(s) => navigate(s as Screen)}
+            onLogout={() => void useConnectionStore.getState().logout()}
+          />
+        );
+      default:
+        return null;
+    }
+  }, [activeName, rpc, rest, navigate]);
+
   return (
     <div className="hm-app-shell">
       {/* ── Header ───────────────────────────────────────────────── */}
@@ -651,30 +809,31 @@ export function AppShell({ connectionState, rpc, rest, onRetry }: AppShellProps)
         <UpdateNotification update={updateCheck} onDismiss={dismissUpdateNotification} />
       ) : null}
 
-      {/* ── Screen ───────────────────────────────────────────────── */}
+      {/* ── Screen with dual-mount push ──────────────────────────────── */}
       <main className="hm-screen" ref={screenRef}>
-        <LazyScreenErrorBoundary key={screen}>
-          <Suspense fallback={<p className="hm-muted hm-loading">Loading…</p>}>
-            {screen === 'chat'      && <Chat key={activeName ?? 'default'} rpc={rpc} rest={rest} onNavigate={(s) => navigate(s as Screen)} />}
-            {screen === 'sessions'  && <Sessions rpc={rpc} rest={rest} onSessionOpen={() => navigate('chat')} />}
-            {screen === 'approvals' && <Activity key={activeName ?? 'default'} rpc={rpc} />}
-            {screen === 'kanban'    && <Projects key={activeName ?? 'default'} rest={rest} />}
-            {screen === 'agents'    && <Agents key={activeName ?? 'default'} rpc={rpc} />}
-            {screen === 'profiles'  && <Profiles key={activeName ?? 'default'} rest={rest} />}
-            {screen === 'home'      && <Home key={activeName ?? 'default'} rpc={rpc} rest={rest} onNavigate={(s) => navigate(s as Screen)} />}
-            {screen === 'command'   && <CommandCenter key={activeName ?? 'default'} rest={rest} />}
-            {screen === 'cron'      && <Cron key={activeName ?? 'default'} rest={rest} />}
-            {screen === 'artifacts' && <Artifacts key={activeName ?? 'default'} rest={rest} />}
-            {screen === 'settings'  && (
-              <Settings
-                key={activeName ?? 'default'}
-                rest={rest}
-                onNavigate={(s) => navigate(s as Screen)}
-                onLogout={() => void useConnectionStore.getState().logout()}
-              />
-            )}
-          </Suspense>
-        </LazyScreenErrorBoundary>
+        <div className="hm-screen-stack" ref={stackRef}>
+          <div className="hm-screen-frame">
+            <LazyScreenErrorBoundary key={screen}>
+              <Suspense fallback={<p className="hm-muted hm-loading">Loading…</p>}>
+                {renderScreenContent(screen)}
+              </Suspense>
+            </LazyScreenErrorBoundary>
+          </div>
+          {nextScreen && (
+            <div
+              className="hm-screen-frame"
+              style={{
+                transform: swipeDirRef.current === 'left' ? 'translateX(100%)' : 'translateX(-100%)',
+              }}
+            >
+              <LazyScreenErrorBoundary key={nextScreen}>
+                <Suspense fallback={<p className="hm-muted hm-loading">Loading…</p>}>
+                  {renderScreenContent(nextScreen)}
+                </Suspense>
+              </LazyScreenErrorBoundary>
+            </div>
+          )}
+        </div>
       </main>
 
       {/* ── Drawer ───────────────────────────────────────────────── */}

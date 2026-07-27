@@ -1099,16 +1099,15 @@ export const useChatStore = create<ChatStore>((set, get) => ({
     try {
       const refreshed = await refreshDurableHistory(rest, durableSessionId, before.messages, cacheProfile);
       if (!isSameChatState(get(), anchor)) return;
-      // Only update storedSessionId — never replace messages from the server.
-      // The local transcript is always the source of truth; server history
-      // refreshes can race with in-progress turns and silently drop messages.
+      // Apply the server snapshot merged with the local transcript. This is the
+      // foreground-recovery path for output that arrived while iOS suspended the
+      // PWA; mergeHistoryWithLocal retains local pending rows and tool metadata.
       const next = {
         storedSessionId: refreshed.storedSessionId,
+        messages: refreshed.messages,
       };
-      if (refreshed.storedSessionId !== before.storedSessionId) {
-        set(next);
-        persistActiveSession({ ...get(), ...next });
-      }
+      set(next);
+      persistActiveSession({ ...get(), ...next });
     } catch {
       // Best-effort background reconciliation. The cached transcript remains a
       // valid offline fallback if the REST snapshot is temporarily unavailable.
@@ -1176,7 +1175,11 @@ export const useChatStore = create<ChatStore>((set, get) => ({
     }
 
     if (durableSessionId) {
-      const beforeOpen = { ...get(), messages: [] as Message[] };
+      // Restore only reopens the cached active durable chat. Retain its local
+      // tail so a stale REST snapshot cannot erase messages the PWA persisted
+      // before iOS suspended it. Explicit session selection clears first in
+      // resumeSessionIntoChat(), preventing cross-session transcript bleed.
+      const beforeOpen = get();
       set({ streaming: false, error: undefined, messages: [] });
       const openAnchor = get();
       try {

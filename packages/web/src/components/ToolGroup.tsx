@@ -66,10 +66,13 @@ export function ToolGroup({ tools, rpc, streaming }: ToolGroupProps) {
   const hasRunning = runningCount > 0;
   const stateLabel = hasRunning ? 'running' : 'done';
 
-  // Always start collapsed; user opens manually.
+  // Historical tool groups start collapsed, but a pending tool must reveal its
+  // inline approval controls even after a recovery has cleared `streaming`.
   const [open, setOpen] = useState(false);
 
-  // No auto-open — user taps to expand.
+  useEffect(() => {
+    if (hasRunning) setOpen(true);
+  }, [hasRunning]);
 
   const preview = useMemo(() => {
     if (tools.length === 0) return '';

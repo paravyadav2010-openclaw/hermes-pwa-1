@@ -43,12 +43,14 @@ describe('MessageBubble', () => {
   it('renders user message', () => {
     render(<MessageBubble rpc={rpcMock} message={{ id: '1', role: 'user', text: 'Hello', createdAt: undefined }} />);
     expect(screen.getByText('Hello')).toBeInTheDocument();
+    expect(screen.getByText('Hello').closest('.hm-message')).toHaveClass('hm-message--reveal');
   });
 
   it('renders assistant message with markdown', () => {
     render(<MessageBubble rpc={rpcMock} message={{ id: '2', role: 'assistant', text: '# Title\n\nparagraph', createdAt: undefined }} />);
     expect(screen.getByText('Title')).toBeInTheDocument();
     expect(screen.getByText('paragraph')).toBeInTheDocument();
+    expect(screen.getByText('Title').closest('.hm-message')).toHaveClass('hm-message--reveal');
   });
 
   it('shows timestamp and copy control on completed assistant responses', () => {

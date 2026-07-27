@@ -1040,8 +1040,8 @@ describe('useChatStore', () => {
     expect(restMock.sessionMessages).toHaveBeenCalledWith('stored-ok', 'default');
     expect(rpcMock.request).not.toHaveBeenCalled();
     expect(useChatStore.getState().sessionId).toBe('live-ok');
-    // refreshHistory only reconciles durable id — local transcript stays source of truth.
-    expect(useChatStore.getState().messages.map((m) => m.text)).toEqual(['cached']);
+    // Foreground recovery must render output that arrived while the PWA was suspended.
+    expect(useChatStore.getState().messages.map((m) => m.text)).toEqual(['cached', 'latest local text']);
   });
 
   it('refreshHistory preserves a local pending tool row when REST has the same assistant message without tool calls', async () => {

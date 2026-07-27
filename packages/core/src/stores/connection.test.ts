@@ -520,6 +520,7 @@ describe('useConnectionStore', () => {
     const store = useConnectionStore.getState();
     store.bindTransport(restMock, wsMock, rpcMock);
     useConnectionStore.setState({ state: 'connected', error: undefined });
+    useChatStore.setState({ streaming: true });
 
     store.wakeFromBackground({ forceReconnect: true });
 
@@ -528,6 +529,36 @@ describe('useConnectionStore', () => {
     expect(rpcMock.disconnect).toHaveBeenCalledTimes(1);
     expect(wsMock.close).toHaveBeenCalledTimes(1);
     expect(rpcMock.request).not.toHaveBeenCalled();
+    expect(useChatStore.getState().streaming).toBe(false);
+  });
+
+  it('reopens the active durable chat after the foreground websocket is ready', async () => {
+    vi.mocked(restMock.wsTicket).mockResolvedValue({ ticket: 't-foreground', ttlSeconds: 30 });
+    const resume = vi.spyOn(useChatStore.getState(), 'resumeSessionIntoChat').mockResolvedValue();
+    const store = useConnectionStore.getState();
+    store.bindTransport(restMock, wsMock, rpcMock);
+    useConnectionStore.setState({ state: 'connected', error: undefined });
+    useChatStore.setState({ sessionId: 'stale-live', storedSessionId: 'durable-chat', cacheProfile: 'default' });
+
+    store.wakeFromBackground({ forceReconnect: true });
+    await vi.waitFor(() => expect(wsMock.connect).toHaveBeenCalledTimes(1));
+    rpcMock.events.dispatchEvent({ type: 'gateway.ready' });
+
+    await vi.waitFor(() => expect(resume).toHaveBeenCalledWith(restMock, rpcMock, 'durable-chat', 'default'));
+  });
+
+  it('starts durable-history catch-up before the foreground websocket is ready', async () => {
+    vi.mocked(restMock.wsTicket).mockResolvedValue({ ticket: 't-foreground', ttlSeconds: 30 });
+    const refresh = vi.spyOn(useChatStore.getState(), 'refreshHistory').mockResolvedValue();
+    const store = useConnectionStore.getState();
+    store.bindTransport(restMock, wsMock, rpcMock);
+    useConnectionStore.setState({ state: 'connected', error: undefined });
+    useChatStore.setState({ sessionId: 'stale-live', storedSessionId: 'durable-chat', cacheProfile: 'default', streaming: true });
+
+    store.wakeFromBackground({ forceReconnect: true });
+
+    await vi.waitFor(() => expect(refresh).toHaveBeenCalledWith(restMock, 'default'));
+    await vi.waitFor(() => expect(wsMock.connect).toHaveBeenCalledTimes(1));
   });
 
   it('setOnline forces reconnect when a connected websocket no longer answers RPC', async () => {

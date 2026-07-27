@@ -93,10 +93,54 @@ describe('useSessionsStore', () => {
     expect(useSessionsStore.getState().sessions[0]?.currentSource).toBe('tui');
   });
 
+  it('drops a stale compression-tip alias when the gateway returns its projected lineage head', async () => {
+    useSessionsStore.setState({
+      sessions: [
+        {
+          id: 'intermediate-tip',
+          title: 'iPhone PWA Resume Testing #2',
+          updatedAt: 200,
+          messageCount: 120,
+          profile: 'default',
+          source: 'tui',
+        },
+      ],
+    });
+    vi.mocked(restMock.profileSessions).mockResolvedValue([
+      {
+        id: 'latest-tip',
+        title: 'iPhone PWA Resume Testing #3',
+        updatedAt: 300,
+        messageCount: 150,
+        profile: 'default',
+        source: 'tui',
+        lineageRootId: 'root-session',
+      },
+    ]);
+
+    await useSessionsStore.getState().load(restMock);
+
+    expect(useSessionsStore.getState().sessions).toEqual([
+      expect.objectContaining({ id: 'latest-tip', lineageRootId: 'root-session' }),
+    ]);
+  });
+
   it('load handles empty response', async () => {
     vi.mocked(restMock.profileSessions).mockResolvedValue(undefined as unknown as import('../domain/session').Session[]);
     await useSessionsStore.getState().load(restMock);
     expect(useSessionsStore.getState().sessions).toEqual([]);
+  });
+
+  it('does not synthesize a Sessions row for an unknown title-event alias', () => {
+    useSessionsStore.setState({
+      sessions: [{ id: 'latest-tip', title: 'Current chat', updatedAt: 1, messageCount: 2, profile: 'default' }],
+    });
+
+    useSessionsStore.getState().applyTitle('stale-intermediate-tip', 'Current chat #2', { force: true });
+
+    expect(useSessionsStore.getState().sessions).toEqual([
+      expect.objectContaining({ id: 'latest-tip', title: 'Current chat' }),
+    ]);
   });
 
   it('create calls session.create with profile', async () => {

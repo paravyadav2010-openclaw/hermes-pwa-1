@@ -221,7 +221,7 @@ function MessageBubbleView({ message, rpc, isLast, streaming, liveStatus, liveFa
     const { images: imageUrls, videos: videoUrls } = useMemo(() => extractMediaUrls(preprocessed), [preprocessed]);
     const textOnly = useMemo(() => stripImages(preprocessed), [preprocessed]);
     return (
-      <div className="hm-message hm-message--user">
+      <div className="hm-message hm-message--user hm-message--reveal">
         {textOnly && <ReactMarkdown remarkPlugins={MARKDOWN_REMARK_PLUGINS} components={MARKDOWN_COMPONENTS}>{textOnly}</ReactMarkdown>}
         {videoUrls.length > 0 && (
           <div className="hm-video-grid">
@@ -261,7 +261,7 @@ function MessageBubbleView({ message, rpc, isLast, streaming, liveStatus, liveFa
   const statusFace = liveFace?.trim();
 
   return (
-    <div className="hm-message hm-message--assistant">
+    <div className="hm-message hm-message--assistant hm-message--reveal">
       <div className="hm-message__header">
         <span className="hm-message__avatar">
           <img src="./icons/icon-192.png" alt="" aria-hidden="true" />

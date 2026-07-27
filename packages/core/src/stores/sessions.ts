@@ -2,6 +2,7 @@ import { create } from 'zustand';
 import {
   isPlaceholderSessionTitle,
   mergeSessionsByLineage,
+  preferSessionTitle,
   sessionPinId,
   type Session,
 } from '../domain/session';
@@ -94,6 +95,22 @@ function sessionMatchesId(session: Session, sessionId: string): boolean {
   return session.id === sessionId || session.lineageRootId === sessionId;
 }
 
+function matchingAuthoritativeSession(existing: Session[], incoming: Session): Session | undefined {
+  return existing.find((session) =>
+    session.id === incoming.id ||
+    session.id === incoming.lineageRootId ||
+    session.lineageRootId === incoming.id ||
+    (Boolean(session.lineageRootId) && session.lineageRootId === incoming.lineageRootId),
+  );
+}
+
+function mergeAuthoritativeSessions(existing: Session[], incoming: Session[]): Session[] {
+  return mergeSessionsByLineage([], incoming).map((session) => {
+    const local = matchingAuthoritativeSession(existing, session);
+    return local ? { ...session, title: preferSessionTitle(local.title, session.title) } : session;
+  });
+}
+
 const initialPinnedIds = readPinnedIds();
 const initialProfileFilter = readSessionsProfileFilter();
 
@@ -109,9 +126,11 @@ export const useSessionsStore = create<SessionsStore>((set, get) => ({
     try {
       // Always pull all profiles; UI profileFilter scopes the list.
       const incoming = await rest.profileSessions('all');
-      // Keep meaningful local titles when the API still returns serial stubs.
+      // The gateway list owns membership. Keep a local title only when it maps
+      // to the same durable row/lineage; otherwise stale title-event aliases
+      // from an earlier compression tip would remain visible forever.
       set((state) => ({
-        sessions: mergeSessionsByLineage(state.sessions, incoming ?? []),
+        sessions: mergeAuthoritativeSessions(state.sessions, incoming ?? []),
         loading: false,
       }));
     } catch (err) {
@@ -201,20 +220,7 @@ export const useSessionsStore = create<SessionsStore>((set, get) => ({
         return { ...item, title: nextTitle, updatedAt: Date.now() };
       });
 
-      if (!matched) {
-        return {
-          sessions: [
-            {
-              id: sessionId,
-              title: nextTitle,
-              updatedAt: Date.now(),
-              messageCount: undefined,
-              profile: undefined,
-            },
-            ...sessions,
-          ],
-        };
-      }
+      if (!matched) return { sessions: state.sessions };
 
       if (force) {
         return {

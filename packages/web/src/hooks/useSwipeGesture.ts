@@ -3,6 +3,10 @@ import { useEffect, useRef } from 'react';
 interface SwipeCallbacks {
   onSwipeRight?: () => void;
   onSwipeLeft?: () => void;
+  /** Fired on every touchmove with the current horizontal pixel offset. */
+  onSwiping?: (dx: number) => void;
+  /** Fired on touchend / touchcancel when swiping was possible. */
+  onSwipeEnd?: () => void;
 }
 
 export function useSwipeGesture(
@@ -15,6 +19,7 @@ export function useSwipeGesture(
 
   const touchRef = useRef<{ x: number; y: number } | null>(null);
   const firedRef = useRef(false);
+  const swipingRef = useRef(false);
 
   useEffect(() => {
     if (!enabled) return;
@@ -26,10 +31,10 @@ export function useSwipeGesture(
       if (!t) return;
       touchRef.current = { x: t.clientX, y: t.clientY };
       firedRef.current = false;
+      swipingRef.current = false;
     }
 
     function onTouchMove(e: TouchEvent) {
-      if (firedRef.current) return;
       const start = touchRef.current;
       if (!start) return;
 
@@ -48,21 +53,27 @@ export function useSwipeGesture(
         return;
       }
 
+      // Real-time offset callback for push animation
+      swipingRef.current = true;
+      cbRef.current.onSwiping?.(dx);
+
+      if (firedRef.current) return;
+
       // Horizontal swipe detected
       if (dx > 60) {
         firedRef.current = true;
-        touchRef.current = null;
         cbRef.current.onSwipeRight?.();
       } else if (dx < -60) {
         firedRef.current = true;
-        touchRef.current = null;
         cbRef.current.onSwipeLeft?.();
       }
     }
 
     function reset() {
+      if (swipingRef.current) cbRef.current.onSwipeEnd?.();
       touchRef.current = null;
       firedRef.current = false;
+      swipingRef.current = false;
     }
 
     document.addEventListener('touchstart', onTouchStart, { passive: false });
