@@ -58,11 +58,44 @@ interface ImageGalleryCtx {
 
 const ImageGalleryContext = createContext<ImageGalleryCtx | null>(null);
 
+const LIGHTBOX_ROOT_ID = 'hm-lightbox-root';
+
+/** Dedicated portal host outside swipe-stack / app-shell transforms. */
+export function getLightboxRoot(): HTMLElement | null {
+  if (typeof document === 'undefined') return null;
+  let el = document.getElementById(LIGHTBOX_ROOT_ID);
+  if (!el) {
+    el = document.createElement('div');
+    el.id = LIGHTBOX_ROOT_ID;
+    el.setAttribute('data-hm-lightbox-root', 'true');
+    el.style.cssText = [
+      'position:fixed',
+      'inset:0',
+      'width:100%',
+      'height:100%',
+      'margin:0',
+      'padding:0',
+      'border:0',
+      'z-index:2147483000',
+      'pointer-events:none',
+      'transform:none',
+      'isolation:isolate',
+    ].join(';');
+    document.body.appendChild(el);
+  }
+  return el;
+}
+
 /** Wraps the markdown tree so all MessageImage children share a gallery. */
 export function ImageGalleryProvider({ children }: { children: ReactNode }) {
   const imagesRef = useRef<GalleryImage[]>([]);
   const keysRef = useRef(new Set<string>());
   const [lightbox, setLightbox] = useState<{ images: GalleryImage[]; index: number } | null>(null);
+  const [portalRoot, setPortalRoot] = useState<HTMLElement | null>(null);
+
+  useEffect(() => {
+    setPortalRoot(getLightboxRoot());
+  }, []);
 
   const register = useCallback((key: string, resolvedSrc: string, alt: string) => {
     if (keysRef.current.has(key)) {
@@ -88,40 +121,122 @@ export function ImageGalleryProvider({ children }: { children: ReactNode }) {
 
   const ctx = useMemo<ImageGalleryCtx>(() => ({ register, unregister, openAt }), [register, unregister, openAt]);
 
-  // Portal to body so fixed positioning is true viewport fullscreen — never
-  // trapped by chat/screen transforms (swipe stack, etc.).
-  const lightboxNode = lightbox
-    ? createElement(Lightbox, {
-        images: lightbox.images,
-        startIndex: lightbox.index,
-        onClose: () => setLightbox(null),
-      })
+  // Portal outside chat/screen transforms so position:fixed is true viewport.
+  const host = portalRoot ?? (typeof document !== 'undefined' ? getLightboxRoot() : null);
+  const lightboxNode = lightbox && host
+    ? createPortal(
+        createElement(Lightbox, {
+          images: lightbox.images,
+          startIndex: lightbox.index,
+          onClose: () => setLightbox(null),
+        }),
+        host,
+      )
     : null;
 
   return createElement(
     ImageGalleryContext.Provider,
     { value: ctx },
     children,
-    typeof document !== 'undefined' && lightboxNode
-      ? createPortal(lightboxNode, document.body)
-      : null,
+    lightboxNode,
   );
 }
 
 /* ── Lightbox with swipe ───────────────────────────────────────────── */
 
+const LIGHTBOX_INLINE_STYLE: React.CSSProperties = {
+  position: 'fixed',
+  top: 0,
+  left: 0,
+  right: 0,
+  bottom: 0,
+  width: '100vw',
+  height: '100vh',
+  // dvw/dvh beat iOS chrome / PWA safe layout (also set via class CSS)
+  maxWidth: '100vw',
+  maxHeight: '100vh',
+  margin: 0,
+  padding: 0,
+  border: 0,
+  zIndex: 2147483000,
+  background: 'rgba(0, 0, 0, 0.96)',
+  display: 'flex',
+  alignItems: 'stretch',
+  justifyContent: 'stretch',
+  transform: 'none',
+  isolation: 'isolate',
+  overscrollBehavior: 'none',
+  touchAction: 'none',
+  pointerEvents: 'auto',
+  cursor: 'zoom-out',
+  boxSizing: 'border-box',
+};
+
 function Lightbox({ images, startIndex, onClose }: { images: GalleryImage[]; startIndex: number; onClose: () => void }) {
   const [index, setIndex] = useState(startIndex);
-  const touchStart = useRef<{ x: number; y: number } | null>(null);
   const containerRef = useRef<HTMLDivElement>(null);
+  const [viewportBox, setViewportBox] = useState({ top: 0, left: 0, width: 0, height: 0 });
+  const [slideWidth, setSlideWidth] = useState(0);
 
   const prev = useCallback(() => setIndex((i) => Math.max(0, i - 1)), []);
   const next = useCallback(() => setIndex((i) => Math.min(images.length - 1, i + 1)), [images.length]);
 
-  // Block tab-swipe gesture while lightbox is open
+  // Body scroll lock + block tab-swipe while open
   useEffect(() => {
-    document.body.dataset.lightboxOpen = 'true';
-    return () => { delete document.body.dataset.lightboxOpen; };
+    const html = document.documentElement;
+    const body = document.body;
+    const prevHtmlOverflow = html.style.overflow;
+    const prevBodyOverflow = body.style.overflow;
+    const prevHtmlOverscroll = html.style.overscrollBehavior;
+    const prevBodyOverscroll = body.style.overscrollBehavior;
+    body.dataset.lightboxOpen = 'true';
+    html.style.overflow = 'hidden';
+    body.style.overflow = 'hidden';
+    html.style.overscrollBehavior = 'none';
+    body.style.overscrollBehavior = 'none';
+    return () => {
+      delete body.dataset.lightboxOpen;
+      html.style.overflow = prevHtmlOverflow;
+      body.style.overflow = prevBodyOverflow;
+      html.style.overscrollBehavior = prevHtmlOverscroll;
+      body.style.overscrollBehavior = prevBodyOverscroll;
+    };
+  }, []);
+
+  // visualViewport pixel box (iOS address bar / keyboard safe)
+  useEffect(() => {
+    const apply = () => {
+      const vv = window.visualViewport;
+      if (vv) {
+        setViewportBox({
+          top: Math.round(vv.offsetTop),
+          left: Math.round(vv.offsetLeft),
+          width: Math.round(vv.width),
+          height: Math.round(vv.height),
+        });
+      } else {
+        setViewportBox({
+          top: 0,
+          left: 0,
+          width: Math.round(window.innerWidth),
+          height: Math.round(window.innerHeight),
+        });
+      }
+      const el = containerRef.current;
+      if (el) setSlideWidth(el.clientWidth || window.innerWidth);
+    };
+    apply();
+    const vv = window.visualViewport;
+    vv?.addEventListener('resize', apply);
+    vv?.addEventListener('scroll', apply);
+    window.addEventListener('resize', apply);
+    window.addEventListener('orientationchange', apply);
+    return () => {
+      vv?.removeEventListener('resize', apply);
+      vv?.removeEventListener('scroll', apply);
+      window.removeEventListener('resize', apply);
+      window.removeEventListener('orientationchange', apply);
+    };
   }, []);
 
   // Keyboard nav
@@ -155,7 +270,7 @@ function Lightbox({ images, startIndex, onClose }: { images: GalleryImage[]; sta
   function onTouchEnd(e: React.TouchEvent) {
     if (!dragStart.current) return;
     const dx = e.changedTouches[0].clientX - dragStart.current.x;
-    const elapsed = Date.now() - dragStart.current.time;
+    const elapsed = Math.max(1, Date.now() - dragStart.current.time);
     const velocity = Math.abs(dx) / elapsed;
     dragStart.current = null;
     setDragOffset(0);
@@ -172,10 +287,31 @@ function Lightbox({ images, startIndex, onClose }: { images: GalleryImage[]; sta
 
   if (!images[index]) return null;
 
+  const widthPx = slideWidth || viewportBox.width || (typeof window !== 'undefined' ? window.innerWidth : 0);
+  const boxStyle: React.CSSProperties = {
+    ...LIGHTBOX_INLINE_STYLE,
+    ...(viewportBox.width > 0
+      ? {
+          top: viewportBox.top,
+          left: viewportBox.left,
+          width: viewportBox.width,
+          height: viewportBox.height,
+          right: 'auto',
+          bottom: 'auto',
+          maxWidth: viewportBox.width,
+          maxHeight: viewportBox.height,
+        }
+      : null),
+  };
+
   // Render all images as a sliding strip
   return createElement('div', {
     ref: containerRef,
     className: 'hm-md-img-lightbox',
+    role: 'dialog',
+    'aria-modal': true,
+    'aria-label': 'Image viewer',
+    style: boxStyle,
     onClick: onBackdropClick,
     onTouchStart,
     onTouchMove,
@@ -187,6 +323,7 @@ function Lightbox({ images, startIndex, onClose }: { images: GalleryImage[]; sta
     ),
     // Prev button
     index > 0 && createElement('button', {
+      type: 'button',
       className: 'hm-md-img-lightbox__nav hm-md-img-lightbox__nav--prev',
       onClick: (e: React.MouseEvent) => { e.stopPropagation(); prev(); },
       'aria-label': 'Previous image',
@@ -195,23 +332,26 @@ function Lightbox({ images, startIndex, onClose }: { images: GalleryImage[]; sta
         createElement('path', { d: 'M15 18l-6-6 6-6' }),
       ),
     ),
-    // Sliding strip
+    // Sliding strip — pixel translate (not %) so width is one viewport
     createElement('div', {
       className: 'hm-md-img-lightbox__track',
       style: {
-        transform: `translateX(calc(${-index * 100}% + ${dragOffset}px))`,
+        transform: `translate3d(${(-index * widthPx) + dragOffset}px, 0, 0)`,
         transition: dragOffset !== 0 ? 'none' : 'transform 0.35s cubic-bezier(0.25, 1, 0.5, 1)',
+        width: widthPx > 0 ? `${images.length * widthPx}px` : undefined,
       },
     },
-      ...images.map((img, i) =>
+      ...images.map((img) =>
         createElement('div', {
           key: img.key,
           className: 'hm-md-img-lightbox__slide',
+          style: widthPx > 0 ? { flex: `0 0 ${widthPx}px`, width: widthPx } : undefined,
         },
           createElement('img', {
             src: img.resolvedSrc,
             alt: img.alt,
             className: 'hm-md-img-lightbox__img',
+            draggable: false,
             onClick: (e: React.MouseEvent) => e.stopPropagation(),
           }),
         ),
@@ -219,6 +359,7 @@ function Lightbox({ images, startIndex, onClose }: { images: GalleryImage[]; sta
     ),
     // Next button
     index < images.length - 1 && createElement('button', {
+      type: 'button',
       className: 'hm-md-img-lightbox__nav hm-md-img-lightbox__nav--next',
       onClick: (e: React.MouseEvent) => { e.stopPropagation(); next(); },
       'aria-label': 'Next image',
@@ -229,8 +370,9 @@ function Lightbox({ images, startIndex, onClose }: { images: GalleryImage[]; sta
     ),
     // Close button
     createElement('button', {
+      type: 'button',
       className: 'hm-md-img-lightbox__close',
-      onClick: onClose,
+      onClick: (e: React.MouseEvent) => { e.stopPropagation(); onClose(); },
       'aria-label': 'Close',
     },
       createElement('svg', { width: 20, height: 20, viewBox: '0 0 24 24', fill: 'none', stroke: 'currentColor', strokeWidth: 2.5, strokeLinecap: 'round', strokeLinejoin: 'round' },

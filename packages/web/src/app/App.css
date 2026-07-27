@@ -1506,6 +1506,25 @@ a {
   transform: scale(0.97);
 }
 
+/* Portal host lives on document.body — never inside swipe-stack transforms. */
+#hm-lightbox-root {
+  position: fixed;
+  inset: 0;
+  width: 100%;
+  height: 100%;
+  margin: 0;
+  padding: 0;
+  border: 0;
+  z-index: 2147483000;
+  pointer-events: none;
+  transform: none;
+  isolation: isolate;
+}
+
+#hm-lightbox-root .hm-md-img-lightbox {
+  pointer-events: auto;
+}
+
 .hm-md-img-lightbox {
   position: fixed;
   top: 0;
@@ -1517,6 +1536,9 @@ a {
   width: 100dvw;
   height: 100vh;
   height: 100dvh;
+  min-height: 100vh;
+  min-height: 100dvh;
+  min-height: -webkit-fill-available;
   max-width: 100vw;
   max-width: 100dvw;
   max-height: 100vh;
@@ -1532,13 +1554,12 @@ a {
   animation: hm-fadein 0.15s ease;
   -webkit-backdrop-filter: blur(10px);
   backdrop-filter: blur(10px);
-  /* Cover iOS safe areas and notch */
-  padding-top: env(safe-area-inset-top, 0px);
-  padding-right: env(safe-area-inset-right, 0px);
-  padding-bottom: env(safe-area-inset-bottom, 0px);
-  padding-left: env(safe-area-inset-left, 0px);
+  transform: none;
+  isolation: isolate;
+  /* Safe-area chrome is on slides / controls — keep shell edge-to-edge */
   overscroll-behavior: none;
   touch-action: none;
+  box-sizing: border-box;
 }
 
 .hm-md-img-lightbox__img {

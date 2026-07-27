@@ -1,7 +1,7 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest';
-import { render, screen, fireEvent } from '@testing-library/react';
+import { render, screen, fireEvent, waitFor } from '@testing-library/react';
 import { MessageBubble } from './MessageBubble';
-import { areMessageBubblePropsEqual } from './MessageBubble.helpers';
+import { areMessageBubblePropsEqual, ImageGalleryProvider, MessageImage } from './MessageBubble.helpers';
 import { useActivityStore, useChatStore, type Approval, type RpcClient } from '@hermes-pwa/core';
 
 const rpcMock = { request: vi.fn(), onFrame: vi.fn(), events: new EventTarget() } as unknown as RpcClient;
@@ -462,5 +462,45 @@ describe('MessageBubble', () => {
     expect(container.querySelector('.hm-message__status .hm-message__activity-dots')).toBeInTheDocument();
     expect(container.querySelectorAll('.hm-message__status .hm-message__activity-dots span')).toHaveLength(3);
     expect(container.querySelector('.hm-message__avatar')).toBeNull();
+  });
+
+  it('portals the image lightbox into #hm-lightbox-root (not inside the message tree)', async () => {
+    // 1x1 PNG
+    const dataUrl =
+      'data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mP8z8BQDwAEhQGAhKmMIQAAAABJRU5ErkJggg==';
+    const wrap = document.createElement('div');
+    wrap.id = 'message-tree';
+    document.body.appendChild(wrap);
+
+    const { container } = render(
+      <ImageGalleryProvider>
+        <MessageImage src={dataUrl} alt="test-thumb" />
+      </ImageGalleryProvider>,
+      { container: wrap },
+    );
+
+    const img = container.querySelector('img.hm-md-img') as HTMLImageElement;
+    expect(img).toBeTruthy();
+    fireEvent.click(img);
+
+    await waitFor(() => {
+      const root = document.getElementById('hm-lightbox-root');
+      expect(root).toBeTruthy();
+      const lb = root!.querySelector('.hm-md-img-lightbox');
+      expect(lb).toBeTruthy();
+      expect(lb).toHaveAttribute('role', 'dialog');
+      // Must not be nested under the message tree
+      expect(wrap.contains(lb)).toBe(false);
+      expect(document.body.dataset.lightboxOpen).toBe('true');
+    });
+
+    fireEvent.click(screen.getByLabelText('Close'));
+    await waitFor(() => {
+      expect(document.querySelector('.hm-md-img-lightbox')).toBeNull();
+      expect(document.body.dataset.lightboxOpen).toBeUndefined();
+    });
+
+    document.getElementById('hm-lightbox-root')?.remove();
+    wrap.remove();
   });
 });
