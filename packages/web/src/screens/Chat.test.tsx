@@ -969,6 +969,8 @@ describe('Chat', () => {
     render(<Chat rpc={rpcMock} rest={restMock} />);
 
     expect(screen.queryByText('Tool actions')).not.toBeInTheDocument();
+    // Completed tools are now intentionally folded into the Tools group.
+    fireEvent.click(screen.getByRole('button', { name: /1 tool/i }));
     expect(screen.getByText(/Ran · whoami/i)).toBeInTheDocument();
   });
 

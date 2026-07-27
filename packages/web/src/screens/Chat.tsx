@@ -17,6 +17,7 @@ import { groupTranscript } from '../lib/transcriptGrouping';
 import { Composer } from '../components/Composer';
 import { ProfileModelBar } from '../components/ProfileModelBar';
 import { TodoPanel } from '../components/TodoPanel';
+import { ApprovalDock } from '../components/ApprovalDock';
 import {
   MAX_ATTACHMENT_BYTES,
   attachmentTooLargeMessage,
@@ -138,6 +139,14 @@ export function Chat({ rpc, rest, onNavigate }: ChatProps) {
     () => [sessionId, storedSessionId].filter((value): value is string => Boolean(value)),
     [sessionId, storedSessionId],
   );
+  // Approvals are global activity events; only dock those owned by this chat.
+  const scopedPendingApprovals = useMemo(() => {
+    if (activeSessionIds.length === 0) return pendingApprovals;
+    return pendingApprovals.filter((approval) => {
+      const owner = approval.sourceSessionId ?? approval.sessionId;
+      return !owner || activeSessionIds.includes(owner);
+    });
+  }, [pendingApprovals, activeSessionIds]);
   const latestTodoTool = useMemo(() => {
     const lastMessage = messages.at(-1);
     return lastMessage?.role === 'assistant'
@@ -935,6 +944,9 @@ export function Chat({ rpc, rest, onNavigate }: ChatProps) {
         {error ? <div className="hm-warning-banner hm-warning-banner--error">{error}</div> : null}
       </div>
       <div className="hm-chat-dock">
+        {scopedPendingApprovals.length > 0 && (
+          <ApprovalDock rpc={rpc} approvals={scopedPendingApprovals} />
+        )}
         {streaming && latestTodoTool && <div className="hm-chat__todo-dock"><TodoPanel tool={latestTodoTool} /></div>}
         <Composer
           onSend={handleSend}

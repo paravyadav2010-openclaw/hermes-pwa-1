@@ -54,6 +54,32 @@ describe('MessageBubble', () => {
     expect(screen.getByText('Steer message')).toBeInTheDocument();
   });
 
+  it('keeps active thinking and pending tool outside collapsed groups', () => {
+    const { container } = render(
+      <MessageBubble
+        rpc={rpcMock}
+        isLast
+        streaming
+        message={{
+          id: 'active-turn',
+          role: 'assistant',
+          text: 'partial reply',
+          thinkingParts: ['settled thought', 'live thought'],
+          toolCalls: [
+            { id: 'done', name: 'read_file', input: { path: 'done.ts' }, output: 'complete' },
+            { id: 'active', name: 'terminal', input: { command: 'npm test' }, output: '' },
+          ],
+          createdAt: undefined,
+        }}
+      />,
+    );
+
+    expect(container.querySelector('.hm-thinking--live')).toHaveTextContent('live thought');
+    expect(container.querySelector('.hm-thinking-group')).toHaveClass('hm-thinking-group--collapsed');
+    expect(container.querySelector('[data-hm-tool-standalone="1"]')).toHaveTextContent(/Running command|npm test/i);
+    expect(container.querySelector('.hm-tool-group')).toHaveClass('hm-tool-group--collapsed');
+  });
+
   it('keeps combined assistant prose under thinking and tools for a multi-row turn', () => {
     const { container } = render(
       <MessageBubble
@@ -190,9 +216,9 @@ describe('MessageBubble', () => {
       />,
     );
 
-    expect(screen.getByText('Approval required')).toBeInTheDocument();
-    expect(screen.getByText('Pending tool wants to run')).toBeInTheDocument();
-    expect(screen.getAllByText(/rm -rf \/tmp\/example/).length).toBeGreaterThan(0);
+    expect(screen.queryByText('Approval required')).not.toBeInTheDocument();
+    expect(screen.queryByText('Pending tool wants to run')).not.toBeInTheDocument();
+    expect(document.querySelector('[data-hm-tool-standalone="1"]')).not.toBeNull();
   });
 
   it('re-renders a stable assistant bubble when a recovered approval prop arrives', () => {
@@ -236,8 +262,8 @@ describe('MessageBubble', () => {
       />,
     );
 
-    expect(screen.getByText('Pending tool wants to run')).toBeInTheDocument();
-    expect(screen.getAllByText(/rm -rf \/tmp\/late/).length).toBeGreaterThan(0);
+    expect(screen.queryByText('Pending tool wants to run')).not.toBeInTheDocument();
+    expect(document.querySelector('[data-hm-tool-standalone="1"]')).not.toBeNull();
   });
 
   it('reconstructs inline approval from the sole recovered pending approval when REST history has no tool calls', () => {
@@ -274,9 +300,9 @@ describe('MessageBubble', () => {
       />,
     );
 
-    expect(screen.getByText('Approval required')).toBeInTheDocument();
-    expect(screen.getByText('Pending tool wants to run')).toBeInTheDocument();
-    expect(screen.getAllByText(/rm -rf \/tmp\/from-push/).length).toBeGreaterThan(0);
+    expect(screen.queryByText('Approval required')).not.toBeInTheDocument();
+    expect(screen.queryByText('Pending tool wants to run')).not.toBeInTheDocument();
+    expect(document.querySelector('[data-hm-tool-standalone="1"]')).not.toBeNull();
   });
 
   it('does not reconstruct inline approval when multiple recovered approvals are ambiguous', () => {

@@ -338,13 +338,16 @@ export function AssistantTurn({
   const textOnly = stripImages(preprocessed);
   const hasText = Boolean(textOnly || imageUrls.length > 0 || videoUrls.length > 0);
 
-  // Split tools: pending (no output) outside expanded, completed inside collapsed group
-  const pendingTool = otherTools.find((t) => t.output === undefined);
-  const completedTools = otherTools.filter((t) => t.output !== undefined);
+  // A tool is "active" until it has real output (undefined or blank = still running/pending approval)
+  const isToolActive = (t: { output?: string | undefined }) =>
+    t.output === undefined || (typeof t.output === 'string' && t.output.trim() === '');
+  const pendingTools = otherTools.filter(isToolActive);
+  const pendingTool = pendingTools.length > 0 ? pendingTools[pendingTools.length - 1] : undefined;
+  const completedTools = otherTools.filter((t) => !isToolActive(t));
 
-  // Live thinking stays OUTSIDE the collapsible group and always expanded while
-  // the turn is active and no final reply text yet (tools may still be running).
-  const thinkingIsLive = active && !hasText && thinkingParts.length > 0;
+  // If the turn is streaming, its latest thought is the live expanded block —
+  // even if partial reply prose has already arrived. Earlier thoughts collapse.
+  const thinkingIsLive = active && thinkingParts.length > 0;
   const liveThinking = thinkingIsLive ? thinkingParts[thinkingParts.length - 1] : undefined;
   const groupedThinking = thinkingIsLive ? thinkingParts.slice(0, -1) : thinkingParts;
 
@@ -382,7 +385,7 @@ export function AssistantTurn({
       {hasActions && (
         <div className="hm-message__actions">
           {groupedThinking.length > 0 && (
-            <ThinkingGroup parts={groupedThinking} streaming={active} />
+            <ThinkingGroup parts={groupedThinking} />
           )}
 
           {liveThinking ? <LiveThinking text={liveThinking} /> : null}
@@ -391,17 +394,12 @@ export function AssistantTurn({
             <div className="hm-message__todos"><TodoPanel tool={completedTodoTool} /></div>
           )}
 
-          {otherTools.length > 0 && (
-            <>
-              {/* Pending tool call outside the group, expanded */}
-              {pendingTool && (
-                <ToolRow tool={pendingTool} rpc={rpc} streaming={active} standalone />
-              )}
-              {/* Completed tools in collapsed group */}
-              {completedTools.length > 0 && (
-                <ToolGroup tools={completedTools} rpc={rpc} streaming={false} />
-              )}
-            </>
+          {/* Completed tools collapsed; only the active pending tool is outside. */}
+          {completedTools.length > 0 && (
+            <ToolGroup tools={completedTools} rpc={rpc} />
+          )}
+          {pendingTool && (
+            <ToolRow tool={pendingTool} rpc={rpc} streaming={active} standalone />
           )}
         </div>
       )}

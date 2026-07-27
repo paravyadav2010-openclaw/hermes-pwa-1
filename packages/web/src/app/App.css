@@ -1978,6 +1978,38 @@ img.hm-md-img[data-hm-lightbox-source='1'] {
   border-left: 3px solid var(--hm-color-warning);
 }
 
+/* Active tool outside the collapsed group — distinct card, always open */
+.hm-tool-group__row--standalone {
+  margin: 2px 0 6px;
+  border: 1px solid color-mix(in srgb, var(--hm-color-warning) 45%, var(--hm-color-border));
+  border-left: 3px solid var(--hm-color-warning);
+  background: color-mix(in srgb, var(--hm-color-warning-bg, #fff7ed) 55%, var(--hm-color-surface-2));
+  box-shadow: 0 1px 0 rgba(0, 0, 0, 0.04);
+}
+
+.hm-tool-group__row--standalone .hm-tool-group__row-button {
+  cursor: default;
+  font-weight: var(--hm-fw-medium, 500);
+}
+
+.hm-tool-group__row--standalone .hm-tool-group__row-button:disabled {
+  opacity: 1;
+  color: var(--hm-color-text);
+}
+
+.hm-tool-group__row-live-label {
+  margin-left: auto;
+  flex: 0 0 auto;
+  padding: 1px 7px;
+  border-radius: 999px;
+  font-size: 10px;
+  font-weight: var(--hm-fw-semibold, 600);
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+  color: var(--hm-color-warning-strong, #c2410c);
+  background: color-mix(in srgb, var(--hm-color-warning) 18%, transparent);
+}
+
 .hm-tool-group__row--done {
   border-left: 3px solid var(--hm-color-success);
 }
@@ -3189,11 +3221,22 @@ button.hm-copyable {
 
 /* Live thinking — outside the collapsible group while the model is still reasoning. */
 .hm-thinking--live {
-  margin: 0 0 4px;
-  padding: 6px 8px;
+  margin: 0 0 6px;
+  padding: 8px 10px;
   border-radius: 12px;
-  border: 1px solid color-mix(in srgb, var(--hm-color-border) 85%, transparent);
-  background: color-mix(in srgb, var(--hm-color-surface-2) 55%, transparent);
+  border: 1px solid color-mix(in srgb, var(--hm-color-accent, #2563eb) 28%, var(--hm-color-border));
+  background: color-mix(in srgb, var(--hm-color-surface-2) 70%, transparent);
+  display: flex !important;
+  flex-direction: column;
+  gap: 4px;
+}
+
+.hm-thinking--live.hm-thinking--open .hm-thinking__body,
+.hm-thinking--live .hm-thinking__body--live {
+  display: block !important;
+  visibility: visible !important;
+  max-height: min(55vh, 420px);
+  overflow-y: auto;
 }
 
 .hm-thinking__header {
@@ -3469,6 +3512,129 @@ button.hm-copyable {
   margin: 6px 0 0;
   max-height: min(34vh, 260px);
   overflow-y: auto;
+}
+
+/* Approval dock — sticky above composer (same surface as todo dock) */
+.hm-chat__approval-dock {
+  flex: 0 0 auto;
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  padding: 8px 10px 6px;
+  background: var(--hm-color-surface);
+  border-top: 1px solid var(--hm-color-border);
+  max-height: min(42vh, 320px);
+  overflow-y: auto;
+  -webkit-overflow-scrolling: touch;
+  overscroll-behavior: contain;
+}
+
+.hm-approval-dock__card {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  padding: 10px 12px;
+  border-radius: 14px;
+  border: 1px solid color-mix(in srgb, var(--hm-color-warning) 42%, var(--hm-color-border));
+  background: color-mix(in srgb, var(--hm-color-warning-bg, #fff7ed) 78%, var(--hm-color-surface));
+  box-shadow: 0 1px 0 rgba(0, 0, 0, 0.04);
+}
+
+.hm-approval-dock__header {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  min-width: 0;
+}
+
+.hm-approval-dock__icon {
+  display: inline-flex;
+  flex: 0 0 auto;
+  color: var(--hm-color-warning-strong, #c2410c);
+}
+
+.hm-approval-dock__title {
+  flex: 1 1 auto;
+  min-width: 0;
+  font-size: 13px;
+  font-weight: var(--hm-fw-semibold, 600);
+  color: var(--hm-color-text);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.hm-approval-dock__risk {
+  flex: 0 0 auto;
+  padding: 2px 8px;
+  border-radius: 999px;
+  font-size: 11px;
+  font-weight: var(--hm-fw-medium, 500);
+  text-transform: lowercase;
+}
+
+.hm-approval-dock__cmd {
+  margin: 0;
+  padding: 8px 10px;
+  border-radius: 10px;
+  background: color-mix(in srgb, var(--hm-color-surface-2) 88%, transparent);
+  border: 1px solid color-mix(in srgb, var(--hm-color-border) 80%, transparent);
+  color: var(--hm-color-text);
+  font-family: var(--hm-font-mono);
+  font-size: 12px;
+  line-height: 1.35;
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+  max-height: 7.5em;
+  overflow-y: auto;
+}
+
+.hm-approval-dock__actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+}
+
+.hm-approval-dock__approve,
+.hm-approval-dock__deny,
+.hm-approval-dock__session,
+.hm-approval-dock__always {
+  appearance: none;
+  border: 0;
+  border-radius: 999px;
+  min-height: 34px;
+  padding: 0 12px;
+  font: inherit;
+  font-size: 12px;
+  font-weight: var(--hm-fw-medium, 500);
+  cursor: pointer;
+  -webkit-tap-highlight-color: transparent;
+}
+
+.hm-approval-dock__approve {
+  background: var(--hm-color-accent, #2563eb);
+  color: #fff;
+}
+
+.hm-approval-dock__deny {
+  background: color-mix(in srgb, var(--hm-color-danger, #dc2626) 14%, var(--hm-color-surface));
+  color: var(--hm-color-danger-strong, #b91c1c);
+  border: 1px solid color-mix(in srgb, var(--hm-color-danger, #dc2626) 28%, transparent);
+}
+
+.hm-approval-dock__session,
+.hm-approval-dock__always {
+  background: color-mix(in srgb, var(--hm-color-surface-2) 90%, transparent);
+  color: var(--hm-color-text);
+  border: 1px solid var(--hm-color-border);
+}
+
+.hm-approval-dock__approve:disabled,
+.hm-approval-dock__deny:disabled,
+.hm-approval-dock__session:disabled,
+.hm-approval-dock__always:disabled {
+  opacity: 0.55;
+  cursor: default;
 }
 
 .hm-markdown pre {
