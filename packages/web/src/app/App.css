@@ -2250,18 +2250,100 @@ a {
   padding: var(--hm-space-4) var(--hm-space-4) var(--hm-space-5);
 }
 
+/* Assistant: prose on the chat canvas — no card / no black slab. */
 .hm-message--assistant {
+  display: flex !important;
+  flex-direction: column !important;
+  align-items: stretch !important;
+  align-self: flex-start;
+  gap: 0;
+  width: 100%;
   max-width: min(100%, 680px);
   padding: 0;
   border: 0;
   border-radius: 0;
-  background: transparent;
+  background: transparent !important;
+  color: var(--hm-color-text);
   line-height: 1.5;
+  overflow: visible !important;
 }
 
-.hm-message--assistant {
-  width: 100%;
+/* User: compact iMessage-style bubble (soft blue tint, real corners). */
+.hm-message--user {
+  align-self: flex-end;
+  width: fit-content;
+  max-width: min(86%, 520px);
+  padding: 10px 14px;
+  border-radius: 18px 18px 6px 18px;
+  background: color-mix(in srgb, var(--hm-color-accent) 18%, var(--hm-color-surface));
+  border: 1px solid color-mix(in srgb, var(--hm-color-accent) 30%, transparent);
   color: var(--hm-color-text);
+  box-shadow: none;
+  overflow: hidden;
+}
+
+.hm-message--user > p,
+.hm-message--user .hm-message__text > p {
+  margin: 0;
+}
+
+.hm-message--user > p + p,
+.hm-message--user .hm-message__text > p + p {
+  margin-top: 6px;
+}
+
+/* Long paste / hashes inside the user bubble stay inside the rounded card. */
+.hm-message--user pre,
+.hm-message--user .hm-code-block,
+.hm-message--user .hm-code-block__pre {
+  margin: 4px 0 0;
+  max-width: 100%;
+  border-radius: 10px;
+  border: 0;
+  background: color-mix(in srgb, var(--hm-color-bg) 55%, transparent);
+}
+
+.hm-message--user .hm-inline-code,
+.hm-message--user code {
+  background: color-mix(in srgb, var(--hm-color-bg) 45%, transparent);
+  border-radius: 5px;
+  padding: 1px 5px;
+}
+
+/* Images in chat: no heavy blue frame on the whole image — only a soft clip. */
+.hm-message--user .hm-image-grid,
+.hm-message--assistant .hm-image-grid {
+  margin-top: 6px;
+}
+
+.hm-message--user .hm-md-img-wrap,
+.hm-message--assistant .hm-md-img-wrap {
+  border: 0;
+  outline: none;
+  box-shadow: none;
+  background: transparent;
+  border-radius: 12px;
+  overflow: hidden;
+}
+
+.hm-message--user .hm-md-img,
+.hm-message--assistant .hm-md-img {
+  border: 0;
+  box-shadow: none;
+  outline: none;
+  background: transparent;
+}
+
+/* Optional selected/match state — only the mark, never the whole media frame. */
+.hm-message mark,
+.hm-message .hm-mark {
+  background: color-mix(in srgb, var(--hm-color-accent) 28%, transparent);
+  color: inherit;
+  border-radius: 4px;
+  padding: 0 3px;
+  border: 0;
+  box-decoration-break: clone;
+  -webkit-box-decoration-break: clone;
 }
 
 .hm-message--steer {
@@ -2324,9 +2406,15 @@ a {
 }
 
 .hm-message--assistant:hover .hm-message__meta,
-.hm-message--assistant:focus-within .hm-message__meta {
+.hm-message--assistant:focus-within .hm-message__meta,
+.hm-message--user:hover .hm-message__meta,
+.hm-message--user:focus-within .hm-message__meta {
   opacity: 1;
   pointer-events: auto;
+}
+
+.hm-message--user .hm-message__meta {
+  justify-content: flex-end;
 }
 
 .hm-message__time {
@@ -2345,29 +2433,41 @@ a {
   width: 100%;
   max-width: 100%;
   min-width: 0;
-  margin: 0 0 16px;
+  margin: 0 0 12px;
   padding: 0;
   position: relative;
   z-index: 1;
   isolation: isolate;
-  /* Keep tool trail in normal document flow so answer text cannot paint under it. */
   flex: 0 0 auto;
   overflow: visible;
+  background: transparent;
 }
 
+/* Assistant prose sits on the chat background — never a black card. */
 .hm-message__text {
   display: block;
   position: relative;
   z-index: 0;
-  margin-top: 4px;
+  margin-top: 2px;
   clear: both;
   width: 100%;
   max-width: 100%;
   min-width: 0;
-  background: var(--hm-color-bg);
+  padding: 0;
+  border: 0;
+  border-radius: 0;
+  background: transparent !important;
 }
 
-/* Desktop-parity tool trail: single-line title rows, no card chrome, no second line. */
+.hm-message__text > p {
+  margin: 0 0 0.65em;
+}
+
+.hm-message__text > p:last-child {
+  margin-bottom: 0;
+}
+
+/* Soft padded tool trail — collapsible group like Thinking. */
 .hm-tool-group {
   width: 100%;
   max-width: 100%;
@@ -2376,26 +2476,115 @@ a {
   flex-direction: column;
   gap: 2px;
   border: 0 !important;
-  border-radius: 0 !important;
+  border-radius: 12px !important;
   background: transparent !important;
   overflow: visible !important;
   position: relative;
   z-index: 1;
   flex: 0 0 auto;
+  padding: 0;
 }
 
-/* Long runs: scroll INSIDE a real clipped box so later tools never bleed over prose. */
+.hm-tool-group__header {
+  display: flex !important;
+  flex-direction: row !important;
+  align-items: center !important;
+  gap: 8px !important;
+  width: 100%;
+  min-height: 28px;
+  margin: 0;
+  padding: 4px 6px !important;
+  border: 0 !important;
+  border-radius: 8px !important;
+  background: transparent !important;
+  color: var(--hm-color-text-muted) !important;
+  font-family: inherit !important;
+  font-size: 12px !important;
+  font-weight: var(--hm-fw-medium) !important;
+  text-align: left !important;
+  cursor: pointer;
+  -webkit-tap-highlight-color: transparent;
+}
+
+.hm-tool-group__header:hover,
+.hm-tool-group__header:focus-visible {
+  background: color-mix(in srgb, var(--hm-color-surface-2) 70%, transparent) !important;
+  color: var(--hm-color-text) !important;
+}
+
+.hm-tool-group__header-title {
+  flex: 0 1 auto;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  font-weight: var(--hm-fw-medium);
+  color: inherit;
+}
+
+.hm-tool-group__header-title--live {
+  color: var(--hm-color-text);
+}
+
+.hm-tool-group__header-running {
+  width: 7px;
+  height: 7px;
+  border-radius: 50%;
+  background: var(--hm-color-warning);
+  animation: hm-pulse 1.5s ease-in-out infinite;
+  flex-shrink: 0;
+}
+
+.hm-tool-group__chevron {
+  margin-left: auto;
+  display: inline-flex !important;
+  align-items: center;
+  justify-content: center;
+  flex: 0 0 auto;
+  color: var(--hm-color-text-muted);
+  opacity: 0.75;
+  transition: transform 0.15s ease;
+}
+
+.hm-tool-group__chevron--open {
+  transform: rotate(90deg);
+}
+
+.hm-tool-group__body {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  width: 100%;
+  min-width: 0;
+  padding: 2px 0 0;
+  border: 0;
+  background: transparent;
+}
+
 .hm-tool-group--bounded {
-  max-height: min(42vh, 220px) !important;
-  overflow-x: hidden !important;
-  overflow-y: auto !important;
+  max-height: none !important;
+  overflow: visible !important;
+  padding: 0 !important;
+  border: 0 !important;
+  background: transparent !important;
+  contain: none;
+}
+
+.hm-tool-group--bounded .hm-tool-group__body {
+  max-height: min(42vh, 220px);
+  overflow-x: hidden;
+  overflow-y: auto;
   -webkit-overflow-scrolling: touch;
   overscroll-behavior: contain;
-  padding: 2px 0;
-  border-radius: 8px !important;
-  background: color-mix(in srgb, var(--hm-color-surface-2) 55%, transparent) !important;
+  padding: 4px 6px 6px;
+  border-radius: 12px;
+  border: 1px solid color-mix(in srgb, var(--hm-color-border) 90%, transparent);
+  background: color-mix(in srgb, var(--hm-color-surface-2) 72%, transparent);
   contain: layout paint;
-  isolation: isolate;
+}
+
+.hm-tool-group--collapsed .hm-tool-group__body {
+  display: none;
 }
 
 .hm-tool-group__row {
@@ -2404,7 +2593,7 @@ a {
   max-width: 100%;
   min-width: 0;
   border: 0 !important;
-  border-radius: 0 !important;
+  border-radius: 8px !important;
   background: transparent !important;
   overflow: hidden !important;
   position: relative;
@@ -2427,9 +2616,9 @@ a {
   min-width: 0 !important;
   min-height: 30px;
   height: auto !important;
-  padding: 5px 8px !important;
+  padding: 6px 8px !important;
   border: 0 !important;
-  border-radius: 6px;
+  border-radius: 8px;
   background: transparent !important;
   color: var(--hm-color-text-muted) !important;
   font-family: inherit !important;
@@ -2443,7 +2632,7 @@ a {
 
 .hm-tool-group__row-button:not(:disabled):hover,
 .hm-tool-group__row-button:not(:disabled):focus-visible {
-  background: color-mix(in srgb, var(--hm-color-surface-2) 80%, transparent) !important;
+  background: color-mix(in srgb, var(--hm-color-surface) 70%, transparent) !important;
   color: var(--hm-color-text) !important;
 }
 
@@ -2481,14 +2670,14 @@ a {
   overflow: hidden !important;
   text-overflow: ellipsis !important;
   white-space: nowrap !important;
-  color: var(--hm-color-text-muted) !important;
+  /* Lighter than muted so tool labels stay readable on dark surfaces. */
+  color: color-mix(in srgb, var(--hm-color-text) 78%, var(--hm-color-text-muted) 22%) !important;
   font-family: inherit !important;
   font-size: 12px !important;
   font-weight: var(--hm-fw-medium) !important;
   letter-spacing: normal !important;
   word-break: keep-all !important;
   overflow-wrap: normal !important;
-  /* Kill any inherited mono / anywhere wrap that scrambled long paths on iOS */
   -webkit-text-size-adjust: 100%;
 }
 
@@ -2519,16 +2708,22 @@ a {
   display: inline-flex !important;
   color: var(--hm-color-text-muted);
   opacity: 0.7;
+  transition: transform 0.15s ease;
+}
+
+.hm-tool-group__row-chevron--open {
+  transform: rotate(90deg);
 }
 
 .hm-tool-group__row-detail {
   margin: 2px 0 6px 24px !important;
   border: 1px solid var(--hm-color-border);
-  border-radius: 6px;
-  background: var(--hm-color-surface-2);
+  border-radius: 8px;
+  background: color-mix(in srgb, var(--hm-color-surface) 88%, transparent);
   max-width: calc(100% - 24px);
   position: relative;
   z-index: 2;
+  overflow: hidden;
 }
 
 .hm-tool-group__row-detail-label {
@@ -2552,12 +2747,41 @@ a {
   word-break: break-word;
 }
 
-.hm-message--assistant {
-  display: flex !important;
-  flex-direction: column !important;
-  align-items: stretch !important;
-  gap: 0;
-  overflow: visible !important;
+/* Inline / fenced code in assistant: soft chips & cards, not full-bleed black slabs. */
+.hm-message--assistant .hm-inline-code,
+.hm-message--assistant code:not(pre code) {
+  background: color-mix(in srgb, var(--hm-color-surface-2) 85%, transparent);
+  border: 1px solid color-mix(in srgb, var(--hm-color-border) 80%, transparent);
+  border-radius: 5px;
+  padding: 1px 5px;
+}
+
+.hm-message--assistant .hm-code-block {
+  margin: 8px 0;
+  border: 1px solid var(--hm-color-border);
+  border-radius: 12px;
+  background: color-mix(in srgb, var(--hm-color-surface-2) 88%, transparent);
+  overflow: hidden;
+}
+
+.hm-message--assistant .hm-code-block__pre,
+.hm-message--assistant pre {
+  margin: 0;
+  border-radius: 0;
+  background: transparent;
+}
+
+/* Links on dark chat: lighter blue, not dark navy on black. */
+.hm-message a,
+.hm-message__text a {
+  color: color-mix(in srgb, var(--hm-color-accent) 72%, #ffffff 28%);
+  text-decoration: underline;
+  text-decoration-thickness: 1px;
+  text-underline-offset: 2px;
+}
+
+.hm-message a:visited {
+  color: color-mix(in srgb, var(--hm-color-accent) 55%, #c4b5fd 45%);
 }
 
 .hm-thinking {
@@ -2569,17 +2793,27 @@ a {
 }
 
 .hm-thinking__header {
+  display: flex;
+  align-items: center;
   gap: 6px;
-  min-height: 24px;
-  padding: 2px 4px;
-  border-radius: 6px;
+  width: 100%;
+  min-height: 28px;
+  padding: 4px 6px;
+  border: 0;
+  border-radius: 8px;
+  background: transparent;
   color: var(--hm-color-text-muted);
-  font-size: 11px;
+  font-family: inherit;
+  font-size: 12px;
+  text-align: left;
+  cursor: pointer;
+  -webkit-tap-highlight-color: transparent;
 }
 
 .hm-thinking__header:hover,
 .hm-thinking__header:focus-visible {
-  background: var(--hm-color-surface-2);
+  background: color-mix(in srgb, var(--hm-color-surface-2) 70%, transparent);
+  color: var(--hm-color-text);
 }
 
 .hm-thinking__title {
@@ -2590,17 +2824,23 @@ a {
   color: var(--hm-color-text);
 }
 
-.hm-thinking__hint {
+.hm-thinking__chevron {
   margin-left: auto;
-  opacity: 0;
-  font-size: 10px;
-  transition: opacity 150ms ease;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  flex: 0 0 auto;
+  color: var(--hm-color-text-muted);
+  opacity: 0.75;
+  transition: transform 0.15s ease;
 }
 
-.hm-thinking:hover .hm-thinking__hint,
-.hm-thinking:focus-within .hm-thinking__hint,
-.hm-thinking--open .hm-thinking__hint {
-  opacity: 0.75;
+.hm-thinking__chevron--open {
+  transform: rotate(90deg);
+}
+
+.hm-thinking__hint {
+  display: none;
 }
 
 .hm-thinking__body {

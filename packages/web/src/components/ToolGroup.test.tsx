@@ -6,17 +6,23 @@ import type { RpcClient } from '@hermes-pwa/core';
 const rpcMock = { request: vi.fn(), onFrame: vi.fn(), events: new EventTarget() } as unknown as RpcClient;
 
 describe('ToolGroup', () => {
-  it('renders finished tools as single-line desktop-style titles and expands detail', () => {
+  it('collapses finished tools behind a header with chevron, expands on click', () => {
     const { container } = render(
       <ToolGroup
         rpc={rpcMock}
         tools={[{ id: 't1', name: 'terminal', input: { command: 'pytest -k reconnect' }, output: '2 passed' }]}
       />,
     );
-    expect(screen.queryByText('Tool actions')).not.toBeInTheDocument();
+
+    const header = screen.getByRole('button', { name: /1 tool/i });
+    expect(header).toHaveAttribute('aria-expanded', 'false');
+    expect(container.querySelector('.hm-tool-group__chevron')).not.toBeNull();
+    expect(screen.queryByText(/Ran · pytest -k reconnect/i)).not.toBeInTheDocument();
+
+    fireEvent.click(header);
+    expect(header).toHaveAttribute('aria-expanded', 'true');
     const row = screen.getByRole('button', { name: /Ran · pytest -k reconnect/i });
     expect(row).toHaveAttribute('aria-expanded', 'false');
-    expect(container.querySelector('.hm-tool-group__row-main')).toBeNull();
 
     fireEvent.click(row);
     expect(row).toHaveAttribute('aria-expanded', 'true');
@@ -27,8 +33,9 @@ describe('ToolGroup', () => {
     render(
       <ToolGroup
         rpc={rpcMock}
+        streaming
         tools={[
-          { id: 't1', name: 'terminal', input: { context: "Running echo hi" }, output: 'hi' },
+          { id: 't1', name: 'terminal', input: { context: 'Running echo hi' }, output: 'hi' },
           { id: 't2', name: 'read_file', input: { context: 'Reading service-worker.js' }, output: 'ok' },
           { id: 't3', name: 'search_files', input: { context: 'Searching files for reconnecting' }, output: '[]' },
         ]}
@@ -41,8 +48,15 @@ describe('ToolGroup', () => {
     expect(screen.queryByText(/Read Reading/i)).not.toBeInTheDocument();
   });
 
-  it('auto-opens while streaming with a running tool', () => {
-    render(<ToolGroup rpc={rpcMock} tools={[{ id: 't1', name: 'search_files', input: { path: 'src' } }]} streaming />);
+  it('stays open while streaming with a running tool', () => {
+    render(
+      <ToolGroup
+        rpc={rpcMock}
+        tools={[{ id: 't1', name: 'search_files', input: { path: 'src' } }]}
+        streaming
+      />,
+    );
+    expect(screen.getByRole('button', { name: /Running 1 tool/i })).toHaveAttribute('aria-expanded', 'true');
     expect(screen.getByText(/Searching/i)).toBeInTheDocument();
   });
 
@@ -50,6 +64,7 @@ describe('ToolGroup', () => {
     render(
       <ToolGroup
         rpc={rpcMock}
+        streaming
         tools={[{ id: 't1', name: 'read_file', input: { path: '/tmp/example.ts' }, output: 'export const x = 1' }]}
       />,
     );
@@ -60,6 +75,7 @@ describe('ToolGroup', () => {
     render(
       <ToolGroup
         rpc={rpcMock}
+        streaming
         tools={[{ id: 't-command', name: 'terminal', input: { command: 'git status --short' }, output: 'M app.tsx' }]}
       />,
     );
@@ -68,10 +84,11 @@ describe('ToolGroup', () => {
     expect(screen.queryByText('M app.tsx')).not.toBeInTheDocument();
   });
 
-  it('removes the compact run constraint when a row is expanded', () => {
+  it('bounds long tool lists only while the group body is open', () => {
     const { container } = render(
       <ToolGroup
         rpc={rpcMock}
+        streaming
         tools={[
           { id: 't1', name: 'terminal', input: { command: 'one' }, output: 'one result' },
           { id: 't2', name: 'terminal', input: { command: 'two' }, output: 'two result' },
@@ -80,9 +97,9 @@ describe('ToolGroup', () => {
       />,
     );
     expect(container.querySelector('.hm-tool-group')).toHaveClass('hm-tool-group--bounded');
+    expect(container.querySelector('.hm-tool-group--open')).not.toBeNull();
 
     fireEvent.click(screen.getByRole('button', { name: /Ran · one/i }));
-
     expect(container.querySelector('.hm-tool-group')).not.toHaveClass('hm-tool-group--bounded');
     expect(container.querySelector('.hm-tool-group__row-output')).toHaveTextContent('one result');
   });

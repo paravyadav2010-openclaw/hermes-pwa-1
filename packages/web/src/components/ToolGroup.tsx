@@ -1,4 +1,4 @@
-import { useMemo, useState } from 'react';
+import { useEffect, useMemo, useState } from 'react';
 import type { RpcClient, ToolCall } from '@hermes-pwa/core';
 import { Icon } from './Icon';
 import { ApprovalInline } from './ApprovalInline';
@@ -22,7 +22,6 @@ function ToolRow({ tool, rpc, streaming, onOpenChange }: ToolRowProps) {
   const view = useMemo(() => buildToolView(tool), [tool]);
   const isPendingTool = view.status === 'running';
   const isRunning = isPendingTool && streaming;
-  // Desktop parity: only expand when there is real detail beyond the title line.
   const hasDetail = Boolean(view.detail && view.detail.trim() && view.detail.trim() !== view.title.trim());
   const open = expanded && hasDetail;
   const toggle = () => {
@@ -52,7 +51,7 @@ function ToolRow({ tool, rpc, streaming, onOpenChange }: ToolRowProps) {
         <span className="hm-tool-group__row-title">{truncate(view.title, 140)}</span>
         {view.countLabel && <span className="hm-tool-group__row-count">{view.countLabel}</span>}
         {hasDetail && (
-          <span className={`hm-tool-group__row-chevron${open ? ' hm-tool-group__row-chevron--open' : ''}`}>
+          <span className={`hm-tool-group__row-chevron${open ? ' hm-tool-group__row-chevron--open' : ''}`} aria-hidden="true">
             <Icon name="chevR" size={12} />
           </span>
         )}
@@ -69,20 +68,75 @@ function ToolRow({ tool, rpc, streaming, onOpenChange }: ToolRowProps) {
   );
 }
 
+function groupSummary(tools: ToolCall[], streaming?: boolean): string {
+  const count = tools.length;
+  if (count === 0) return 'Tools';
+  if (streaming) {
+    const running = tools.filter((t) => t.output === undefined).length;
+    if (running > 0) return running === 1 ? 'Running 1 tool' : `Running ${running} tools`;
+    return count === 1 ? '1 tool' : `${count} tools`;
+  }
+  return count === 1 ? '1 tool' : `${count} tools`;
+}
+
 export function ToolGroup({ tools, rpc, streaming }: ToolGroupProps) {
+  const [groupOpen, setGroupOpen] = useState(Boolean(streaming));
   const [expandedToolId, setExpandedToolId] = useState<string | undefined>();
 
+  // Match Thinking: open while the turn streams, collapse when finished.
+  useEffect(() => {
+    if (streaming) {
+      setGroupOpen(true);
+      return;
+    }
+    setGroupOpen(false);
+  }, [streaming]);
+
+  if (tools.length === 0) return null;
+
+  const summary = groupSummary(tools, streaming);
+  const hasRunning = Boolean(streaming && tools.some((t) => t.output === undefined));
+  const bodyOpen = groupOpen;
+  const bounded = tools.length >= 3 && bodyOpen && !expandedToolId;
+
   return (
-    <div className={`hm-tool-group${tools.length >= 3 && !expandedToolId ? ' hm-tool-group--bounded' : ''}`}>
-      {tools.map((tool) => (
-        <ToolRow
-          key={tool.id}
-          tool={tool}
-          rpc={rpc}
-          streaming={streaming}
-          onOpenChange={(toolId, open) => setExpandedToolId(open ? toolId : undefined)}
-        />
-      ))}
+    <div
+      className={[
+        'hm-tool-group',
+        bodyOpen ? 'hm-tool-group--open' : 'hm-tool-group--collapsed',
+        bounded ? 'hm-tool-group--bounded' : '',
+      ]
+        .filter(Boolean)
+        .join(' ')}
+    >
+      <button
+        type="button"
+        className="hm-tool-group__header"
+        onClick={() => setGroupOpen((v) => !v)}
+        aria-expanded={bodyOpen}
+      >
+        <span className={`hm-tool-group__header-title${hasRunning ? ' hm-tool-group__header-title--live' : ''}`}>
+          {summary}
+        </span>
+        {hasRunning && <span className="hm-tool-group__header-running" aria-label="running" />}
+        <span className={`hm-tool-group__chevron${bodyOpen ? ' hm-tool-group__chevron--open' : ''}`} aria-hidden="true">
+          <Icon name="chevR" size={12} />
+        </span>
+      </button>
+
+      {bodyOpen && (
+        <div className="hm-tool-group__body">
+          {tools.map((tool) => (
+            <ToolRow
+              key={tool.id}
+              tool={tool}
+              rpc={rpc}
+              streaming={streaming}
+              onOpenChange={(toolId, open) => setExpandedToolId(open ? toolId : undefined)}
+            />
+          ))}
+        </div>
+      )}
     </div>
   );
 }

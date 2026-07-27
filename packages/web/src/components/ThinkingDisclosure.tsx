@@ -2,7 +2,7 @@ import { useEffect, useState } from 'react';
 import ReactMarkdown from 'react-markdown';
 import remarkGfm from 'remark-gfm';
 import { MARKDOWN_COMPONENTS } from './MessageBubble.helpers';
-
+import { Icon } from './Icon';
 
 interface ThinkingDisclosureProps {
   text: string;
@@ -31,7 +31,9 @@ export function ThinkingDisclosure({ text, streaming, label = 'Thinking' }: Thin
       <button type="button" className="hm-thinking__header" onClick={() => setOpen((v) => !v)} aria-expanded={open}>
         <span className={`hm-thinking__title${streaming ? ' hm-thinking__title--streaming' : ''}`}>{label}</span>
         {streaming && <span className="hm-thinking__spinner" aria-label="thinking" />}
-        <span className="hm-thinking__hint">{open ? 'Hide' : 'Show'}</span>
+        <span className={`hm-thinking__chevron${open ? ' hm-thinking__chevron--open' : ''}`} aria-hidden="true">
+          <Icon name="chevR" size={12} />
+        </span>
       </button>
       {open && (
         <div className="hm-thinking__body">
