@@ -23,8 +23,16 @@ describe('ThinkingGroup', () => {
   it('renders live thinking outside any collapsible group chrome', () => {
     const { container } = render(<LiveThinking text="streaming reason" />);
     expect(container.querySelector('.hm-thinking--live')).not.toBeNull();
+    expect(container.querySelector('[data-hm-thinking-live="1"]')).not.toBeNull();
     expect(screen.getByText('streaming reason')).toBeInTheDocument();
     expect(screen.queryByRole('button', { name: /thoughts/i })).not.toBeInTheDocument();
+  });
+
+  it('keeps the thinking group expanded while streaming', () => {
+    render(<ThinkingGroup parts={['active plan']} streaming />);
+    const header = screen.getByRole('button', { name: /Thinking/i });
+    expect(header).toHaveAttribute('aria-expanded', 'true');
+    expect(screen.getByText('active plan')).toBeInTheDocument();
   });
 });
 

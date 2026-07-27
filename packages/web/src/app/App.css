@@ -3280,9 +3280,11 @@ button.hm-copyable {
 .hm-thinking--live .hm-thinking__body,
 .hm-thinking__body--live {
   display: block !important;
-  max-height: min(34vh, 220px);
+  /* Expanded while active — room to read, still scrollable on long chains */
+  max-height: min(55vh, 420px);
   overflow-y: auto;
   -webkit-overflow-scrolling: touch;
+  overscroll-behavior: contain;
   margin-top: 2px;
 }
 

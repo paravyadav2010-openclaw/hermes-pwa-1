@@ -1,4 +1,4 @@
-import { useEffect, useState } from 'react';
+import { useEffect, useRef, useState } from 'react';
 import ReactMarkdown from 'react-markdown';
 import remarkGfm from 'remark-gfm';
 import { MARKDOWN_COMPONENTS } from './MessageBubble.helpers';
@@ -17,8 +17,21 @@ function summaryLabel(count: number): string {
   return `${count} thoughts`;
 }
 
-function ThinkingPartRow({ text, index, total }: { text: string; index: number; total: number }) {
-  const [open, setOpen] = useState(false);
+function ThinkingPartRow({
+  text,
+  index,
+  total,
+  defaultOpen = false,
+}: {
+  text: string;
+  index: number;
+  total: number;
+  defaultOpen?: boolean;
+}) {
+  const [open, setOpen] = useState(defaultOpen);
+  useEffect(() => {
+    if (defaultOpen) setOpen(true);
+  }, [defaultOpen]);
   const label = total > 1 ? `Thought ${index + 1}` : 'Thought';
 
   return (
@@ -47,15 +60,16 @@ function ThinkingPartRow({ text, index, total }: { text: string; index: number; 
  * Finished thinking, folded like tools:
  * - header + chevron
  * - collapsed by default after the turn
- * - expand group, then expand individual thoughts one-by-one
+ * - while the turn is still streaming, group stays expanded
+ * - expand individual thoughts one-by-one (last open while streaming)
  */
 export function ThinkingGroup({ parts, streaming }: ThinkingGroupProps) {
   const cleaned = parts.map((p) => p.trim()).filter(Boolean);
-  const [groupOpen, setGroupOpen] = useState(false);
+  const [groupOpen, setGroupOpen] = useState(Boolean(streaming));
 
-  // Settled thoughts stay collapsed — only the live stream lives outside this group.
+  // Active turn → expanded; settled → collapse
   useEffect(() => {
-    if (!streaming) setGroupOpen(false);
+    setGroupOpen(Boolean(streaming));
   }, [streaming]);
 
   if (cleaned.length === 0) return null;
@@ -79,7 +93,13 @@ export function ThinkingGroup({ parts, streaming }: ThinkingGroupProps) {
       {groupOpen && (
         <div className="hm-thinking-group__body">
           {cleaned.map((part, idx) => (
-            <ThinkingPartRow key={`thought-${idx}`} text={part} index={idx} total={cleaned.length} />
+            <ThinkingPartRow
+              key={`thought-${idx}`}
+              text={part}
+              index={idx}
+              total={cleaned.length}
+              defaultOpen={Boolean(streaming) && idx === cleaned.length - 1}
+            />
           ))}
         </div>
       )}
@@ -94,14 +114,22 @@ export function ThinkingGroup({ parts, streaming }: ThinkingGroupProps) {
 export function LiveThinking({ text }: { text: string }) {
   const cleaned = text.trim();
   if (!cleaned) return null;
+  const bodyRef = useRef<HTMLDivElement | null>(null);
+
+  // Keep the live body scrolled to the latest tokens
+  useEffect(() => {
+    const el = bodyRef.current;
+    if (!el) return;
+    el.scrollTop = el.scrollHeight;
+  }, [cleaned]);
 
   return (
-    <div className="hm-thinking hm-thinking--live hm-thinking--open">
+    <div className="hm-thinking hm-thinking--live hm-thinking--open" data-hm-thinking-live="1">
       <div className="hm-thinking__header hm-thinking__header--static" aria-live="polite">
         <span className="hm-thinking__title hm-thinking__title--streaming">Thinking</span>
         <span className="hm-thinking__spinner" aria-label="thinking" />
       </div>
-      <div className="hm-thinking__body hm-thinking__body--live">
+      <div ref={bodyRef} className="hm-thinking__body hm-thinking__body--live">
         <ReactMarkdown remarkPlugins={[remarkGfm]} components={MARKDOWN_COMPONENTS}>{cleaned}</ReactMarkdown>
       </div>
     </div>

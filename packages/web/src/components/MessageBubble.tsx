@@ -339,9 +339,9 @@ export function AssistantTurn({
   const hasText = Boolean(textOnly || imageUrls.length > 0 || videoUrls.length > 0);
 
   const hasRunningTools = active && otherTools.some((tool) => tool.output === undefined);
-  // Live thinking stays OUTSIDE the collapsible group. Once tools/text start
-  // (or the turn ends), every thought folds into ThinkingGroup like tools.
-  const thinkingIsLive = active && !hasRunningTools && !hasText && thinkingParts.length > 0;
+  // Live thinking stays OUTSIDE the collapsible group and always expanded while
+  // the turn is active and no final reply text yet (tools may still be running).
+  const thinkingIsLive = active && !hasText && thinkingParts.length > 0;
   const liveThinking = thinkingIsLive ? thinkingParts[thinkingParts.length - 1] : undefined;
   const groupedThinking = thinkingIsLive ? thinkingParts.slice(0, -1) : thinkingParts;
 
