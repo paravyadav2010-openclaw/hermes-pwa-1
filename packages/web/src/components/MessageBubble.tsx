@@ -392,22 +392,19 @@ export function AssistantTurn({
   const textOnly = stripImages(preprocessed);
   const hasText = Boolean(textOnly || imageUrls.length > 0 || videoUrls.length > 0);
 
-  // A tool is "active" until it has real output (undefined or blank = still running/pending approval)
-  const isToolActive = (t: { output?: string | undefined }) =>
-    t.output === undefined || (typeof t.output === 'string' && t.output.trim() === '');
-  const pendingTools = otherTools.filter(isToolActive);
-  const pendingTool = pendingTools.length > 0 ? pendingTools[pendingTools.length - 1] : undefined;
-  const completedTools = otherTools.filter((t) => !isToolActive(t));
+  // Keep the newest tool outside the collapsed history regardless of whether
+  // it is still running. This makes the last action directly inspectable.
+  const latestTool = otherTools.length > 0 ? otherTools[otherTools.length - 1] : undefined;
+  const groupedTools = latestTool ? otherTools.slice(0, -1) : [];
 
-  // If the turn is streaming, its latest thought is the live expanded block —
-  // even if partial reply prose has already arrived. Earlier thoughts collapse.
-  const thinkingIsLive = active && thinkingParts.length > 0;
-  const liveThinking = thinkingIsLive ? thinkingParts[thinkingParts.length - 1] : undefined;
-  const groupedThinking = thinkingIsLive ? thinkingParts.slice(0, -1) : thinkingParts;
+  // The newest thought is always directly inspectable. Earlier thoughts stay
+  // in their collapsed history group, whether the turn is active or settled.
+  const latestThinking = thinkingParts.length > 0 ? thinkingParts[thinkingParts.length - 1] : undefined;
+  const groupedThinking = latestThinking ? thinkingParts.slice(0, -1) : [];
 
   const hasActions =
     groupedThinking.length > 0 ||
-    Boolean(liveThinking?.trim()) ||
+    Boolean(latestThinking?.trim()) ||
     Boolean(completedTodoTool) ||
     otherTools.length > 0;
   const showLiveStatus = active && Boolean(liveStatus?.trim());
@@ -435,21 +432,18 @@ export function AssistantTurn({
         </span>
       )}
 
-      {/* Activity trail: Thinking → completed tools group → active tool. Prose below. */}
+      {/* Activity trail: history groups first, then the newest expanded items. */}
       {hasActions && (
         <div className="hm-message__actions">
-          {/* Thinking remains at the top. */}
-          {liveThinking ? <LiveThinking text={liveThinking} /> : null}
           {groupedThinking.length > 0 && (
             <ThinkingGroup parts={groupedThinking} />
           )}
-
-          {/* Collapsed completed tools stay above the expanded active tool. */}
-          {completedTools.length > 0 && (
-            <ToolGroup tools={completedTools} rpc={rpc} />
+          {latestThinking ? <LiveThinking text={latestThinking} streaming={active} /> : null}
+          {groupedTools.length > 0 && (
+            <ToolGroup tools={groupedTools} rpc={rpc} />
           )}
-          {pendingTool && (
-            <ToolRow tool={pendingTool} rpc={rpc} streaming={active} standalone />
+          {latestTool && (
+            <ToolRow tool={latestTool} rpc={rpc} streaming={active} standalone />
           )}
 
           {completedTodoTool && (

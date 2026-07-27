@@ -100,6 +100,23 @@ describe('ToolGroup', () => {
     expect(screen.getByRole('button', { name: 'Copied' })).toHaveTextContent('Copied');
   });
 
+  it('allows the newest standalone tool to collapse after initially opening', () => {
+    render(
+      <ToolRow
+        standalone
+        rpc={rpcMock}
+        tool={{ id: 'latest-tool', name: 'terminal', input: { command: 'echo hello' }, output: 'hello' }}
+      />,
+    );
+
+    const row = screen.getByRole('button', { name: /Ran · echo hello/i });
+    expect(row).toHaveAttribute('aria-expanded', 'true');
+    expect(screen.getByText('hello')).toBeInTheDocument();
+    fireEvent.click(row);
+    expect(row).toHaveAttribute('aria-expanded', 'false');
+    expect(screen.queryByText('hello')).not.toBeInTheDocument();
+  });
+
   it('bounds long tool lists only while the group body is open (user-clicked)', () => {
     const { container } = render(
       <ToolGroup

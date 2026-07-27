@@ -98,7 +98,7 @@ describe('useActivityStore', () => {
     vi.mocked(rpcMock.request).mockResolvedValue({});
     await useActivityStore.getState().respondClarify(rpcMock, 'c-1', 'yes');
     expect(useActivityStore.getState().items).toHaveLength(0);
-    expect(rpcMock.request).toHaveBeenCalledWith('clarify.respond', { id: 'c-1', answer: 'yes' });
+    expect(rpcMock.request).toHaveBeenCalledWith('clarify.respond', { request_id: 'c-1', answer: 'yes' });
   });
 
   it('respondClarify handles error', async () => {

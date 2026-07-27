@@ -43,7 +43,7 @@ export interface ApprovalRespondParams {
 }
 
 export interface ClarifyRespondParams {
-  id: string;
+  request_id: string;
   answer: string;
 }
 

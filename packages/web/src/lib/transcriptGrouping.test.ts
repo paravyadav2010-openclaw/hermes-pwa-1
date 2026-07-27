@@ -39,4 +39,32 @@ describe('groupTranscript', () => {
     expect(joinAssistantText(batch)).toBe('First bit\n\nSecond bit');
     expect(collectThinkingParts(batch)).toEqual(['step 1', 'step 2']);
   });
+
+  it('preserves a distinct thinking stream chunk alongside normalized parts', () => {
+    const batch = [
+      msg({
+        id: 'a1',
+        role: 'assistant',
+        text: '',
+        thinkingParts: ['first thought'],
+        thinking: 'latest thought',
+      }),
+    ];
+
+    expect(collectThinkingParts(batch)).toEqual(['first thought', 'latest thought']);
+  });
+
+  it('does not repeat a normalized thinkingParts mirror', () => {
+    const batch = [
+      msg({
+        id: 'a1',
+        role: 'assistant',
+        text: '',
+        thinkingParts: ['first thought', 'second thought'],
+        thinking: 'first thought\n\nsecond thought',
+      }),
+    ];
+
+    expect(collectThinkingParts(batch)).toEqual(['first thought', 'second thought']);
+  });
 });

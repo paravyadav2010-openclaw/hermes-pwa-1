@@ -27,6 +27,7 @@ export interface Approval extends ActionItem {
 export interface Clarify extends ActionItem {
   kind: 'clarify';
   question: string;
+  choices?: string[];
 }
 
 export function toActionItem(raw: Record<string, unknown>): ActionItem {
@@ -69,6 +70,10 @@ export function toActionItem(raw: Record<string, unknown>): ActionItem {
       kind: 'clarify',
       question: typeof raw.question === 'string' ? raw.question : '',
     };
+    if (Array.isArray(raw.choices)) {
+      const choices = raw.choices.filter((choice): choice is string => typeof choice === 'string' && choice.trim().length > 0);
+      if (choices.length > 0) out.choices = choices;
+    }
     if (typeof raw.summary === 'string') out.summary = raw.summary;
     return out;
   }

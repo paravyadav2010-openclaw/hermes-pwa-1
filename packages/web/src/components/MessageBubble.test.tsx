@@ -88,7 +88,7 @@ describe('MessageBubble', () => {
     expect(screen.getByText('Steer message')).toBeInTheDocument();
   });
 
-  it('keeps active thinking and pending tool outside collapsed groups', () => {
+  it('orders collapsed history groups above the latest expanded thinking and tool', () => {
     const { container } = render(
       <MessageBubble
         rpc={rpcMock}
@@ -109,8 +109,33 @@ describe('MessageBubble', () => {
     );
 
     const children = Array.from(container.querySelector('.hm-message__actions')!.children);
-    expect(children[0]).toHaveClass('hm-thinking--live');
-    expect(children[1]).toHaveClass('hm-thinking-group--collapsed');
+    expect(children[0]).toHaveClass('hm-thinking-group--collapsed');
+    expect(children[1]).toHaveClass('hm-thinking--live');
+    expect(children[2]).toHaveClass('hm-tool-group--collapsed');
+    expect(children[3]).toHaveAttribute('data-hm-tool-standalone', '1');
+  });
+
+  it('keeps the latest settled thinking and tool expanded outside their history groups', () => {
+    const { container } = render(
+      <MessageBubble
+        rpc={rpcMock}
+        message={{
+          id: 'settled-turn',
+          role: 'assistant',
+          text: 'done',
+          thinkingParts: ['older thought', 'latest thought'],
+          toolCalls: [
+            { id: 'older-tool', name: 'read_file', input: { path: 'older.ts' }, output: 'complete' },
+            { id: 'latest-tool', name: 'terminal', input: { command: 'npm test' }, output: 'passed' },
+          ],
+          createdAt: undefined,
+        }}
+      />,
+    );
+
+    const children = Array.from(container.querySelector('.hm-message__actions')!.children);
+    expect(children[0]).toHaveClass('hm-thinking-group--collapsed');
+    expect(children[1]).toHaveClass('hm-thinking--live');
     expect(children[2]).toHaveClass('hm-tool-group--collapsed');
     expect(children[3]).toHaveAttribute('data-hm-tool-standalone', '1');
   });
@@ -209,11 +234,10 @@ describe('MessageBubble', () => {
         }}
       />,
     );
-    // Settled tools fold into the collapsible group header.
-    const header = screen.getByRole('button', { name: /1 tool/i });
-    expect(header).toBeInTheDocument();
+    // The latest tool stays directly inspectable, even after the turn settles.
+    const row = screen.getByRole('button', { name: /Search/i });
+    expect(row).toBeInTheDocument();
     expect(screen.queryByText('Tool actions')).not.toBeInTheDocument();
-    fireEvent.click(header);
     expect(screen.getByText(/Search/i)).toBeInTheDocument();
   });
 

@@ -143,7 +143,7 @@ export const useActivityStore = create<ActivityStore>((set, get) => ({
 
   async respondClarify(rpc, id, answer) {
     try {
-      await rpc.request('clarify.respond', { id, answer });
+      await rpc.request('clarify.respond', { request_id: id, answer });
       set((s) => ({ items: removeById(s.items, id) }));
     } catch (err) {
       const msg = err instanceof Error ? err.message : 'Failed to respond.';

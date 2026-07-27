@@ -62,6 +62,28 @@ describe('Chat', () => {
     expect(screen.getByText(/Start a conversation/i)).toBeInTheDocument();
   });
 
+  it('shows a jump-to-latest button only when the transcript is meaningfully above the bottom', () => {
+    core.useChatStore.setState({
+      messages: [{ id: 'message-1', role: 'assistant', text: 'Latest response', createdAt: undefined }],
+    });
+    render(<Chat rpc={rpcMock} rest={restMock} />);
+
+    const log = screen.getByRole('log', { name: /conversation/i });
+    const scrollTo = vi.fn();
+    Object.defineProperties(log, {
+      scrollHeight: { configurable: true, value: 1000 },
+      clientHeight: { configurable: true, value: 400 },
+      scrollTop: { configurable: true, writable: true, value: 100 },
+      scrollTo: { configurable: true, value: scrollTo },
+    });
+
+    fireEvent.scroll(log);
+    fireEvent.click(screen.getByRole('button', { name: 'Jump to latest message' }));
+
+    expect(scrollTo).toHaveBeenCalledWith({ top: 1000, behavior: 'smooth' });
+    expect(screen.queryByRole('button', { name: 'Jump to latest message' })).not.toBeInTheDocument();
+  });
+
   it('pins multiple messages for the durable chat and unpins one independently', async () => {
     core.useConnectionStore.setState({ state: 'reconnecting', error: undefined });
     core.useChatStore.setState({

@@ -1,15 +1,18 @@
 import { useRef } from 'react';
 import { Icon } from './Icon';
+import { clipboardHistoryPreview } from '../lib/clipboardHistory';
 
 interface AttachMenuProps {
   open: boolean;
   onClose: () => void;
   onFiles: (files: FileList | null) => void;
   allowFiles?: boolean;
-  onPaste?: () => void;
+  onPasteCurrent?: () => void;
+  clipboardHistory?: string[];
+  onPasteHistory?: (text: string) => void;
 }
 
-export function AttachMenu({ open, onClose, onFiles, allowFiles = true, onPaste }: AttachMenuProps) {
+export function AttachMenu({ open, onClose, onFiles, allowFiles = true, onPasteCurrent, clipboardHistory = [], onPasteHistory }: AttachMenuProps) {
   const filesInputRef = useRef<HTMLInputElement>(null);
   const photosInputRef = useRef<HTMLInputElement>(null);
   const cameraInputRef = useRef<HTMLInputElement>(null);
@@ -51,19 +54,40 @@ export function AttachMenu({ open, onClose, onFiles, allowFiles = true, onPaste 
             </button>
           </>
         )}
-        {onPaste && (
+        {(onPasteCurrent || clipboardHistory.length > 0) && (
+          <div className="hm-attach-clipboard">
+            <span className="hm-attach-clipboard__heading">Clipboard</span>
+            {onPasteCurrent && (
           <button
             type="button"
             className="hm-attach-item"
             role="menuitem"
             onClick={() => {
-              onPaste();
+              onPasteCurrent();
               onClose();
             }}
           >
             <span className="hm-attach-item__icon" aria-hidden><Icon name="clipboard" size={18} /></span>
-            <span className="hm-attach-item__label">Paste</span>
+            <span className="hm-attach-item__label">Paste current</span>
           </button>
+            )}
+            {clipboardHistory.map((text, index) => (
+              <button
+                key={`${text}-${index}`}
+                type="button"
+                className="hm-attach-item hm-attach-item--history"
+                role="menuitem"
+                aria-label={`Paste recent copy ${index + 1}: ${clipboardHistoryPreview(text)}`}
+                onClick={() => {
+                  onPasteHistory?.(text);
+                  onClose();
+                }}
+              >
+                <span className="hm-attach-item__icon" aria-hidden><Icon name="clipboard" size={18} /></span>
+                <span className="hm-attach-item__label hm-attach-item__label--preview">{clipboardHistoryPreview(text)}</span>
+              </button>
+            ))}
+          </div>
         )}
       </div>
 

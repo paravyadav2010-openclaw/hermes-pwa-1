@@ -123,13 +123,21 @@ function approvalFromEvent(event: RpcEvent): Approval {
 function clarifyFromEvent(event: RpcEvent): Clarify {
   const d = eventPayload(event);
   const item: Clarify = {
-    id: typeof d.id === 'string' ? d.id : `clarify-${event.sessionId ?? 'global'}-${Date.now()}`,
+    id: typeof d.request_id === 'string'
+      ? d.request_id
+      : typeof d.id === 'string'
+        ? d.id
+        : `clarify-${event.sessionId ?? 'global'}-${Date.now()}`,
     kind: 'clarify',
     status: 'needs_you',
     title: typeof d.title === 'string' ? d.title : 'Clarification needed',
     question: typeof d.question === 'string' ? d.question : '',
     createdAt: Date.now(),
   };
+  if (Array.isArray(d.choices)) {
+    const choices = d.choices.filter((choice): choice is string => typeof choice === 'string' && choice.trim().length > 0);
+    if (choices.length > 0) item.choices = choices;
+  }
   if (event.sessionId) item.sessionId = event.sessionId;
   return item;
 }

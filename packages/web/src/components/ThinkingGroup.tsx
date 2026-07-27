@@ -99,30 +99,42 @@ export function ThinkingGroup({ parts, streaming: _streaming }: ThinkingGroupPro
 }
 
 /**
- * Live thinking stream — sits OUTSIDE the collapsible group while active.
- * Always expanded while streaming; folds into ThinkingGroup when settled.
+ * The latest thought sits outside the collapsed history group. It starts open
+ * but remains a normal disclosure so the user can collapse it mid-stream.
  */
-export function LiveThinking({ text }: { text: string }) {
+export function LiveThinking({ text, streaming = true }: { text: string; streaming?: boolean }) {
   const cleaned = text.trim();
   if (!cleaned) return null;
   const bodyRef = useRef<HTMLDivElement | null>(null);
+  const [open, setOpen] = useState(true);
 
-  // Keep the live body scrolled to the latest tokens
+  // Keep an open live body scrolled to the latest tokens without reopening a
+  // disclosure the user intentionally collapsed.
   useEffect(() => {
     const el = bodyRef.current;
-    if (!el) return;
+    if (!el || !open) return;
     el.scrollTop = el.scrollHeight;
-  }, [cleaned]);
+  }, [cleaned, open]);
 
   return (
-    <div className="hm-thinking hm-thinking--live hm-thinking--open" data-hm-thinking-live="1">
-      <div className="hm-thinking__header hm-thinking__header--static" aria-live="polite">
-        <span className="hm-thinking__title hm-thinking__title--streaming">Thinking</span>
-        <span className="hm-thinking__spinner" aria-label="thinking" />
-      </div>
-      <div ref={bodyRef} className="hm-thinking__body hm-thinking__body--live">
-        <ReactMarkdown remarkPlugins={[remarkGfm]} components={MARKDOWN_COMPONENTS}>{cleaned}</ReactMarkdown>
-      </div>
+    <div className={`hm-thinking hm-thinking--live${open ? ' hm-thinking--open' : ''}`} data-hm-thinking-live="1">
+      <button
+        type="button"
+        className="hm-thinking__header"
+        onClick={() => setOpen((value) => !value)}
+        aria-expanded={open}
+      >
+        <span className={`hm-thinking__title${streaming ? ' hm-thinking__title--streaming' : ''}`}>Thinking</span>
+        {streaming ? <span className="hm-thinking__spinner" aria-label="thinking" /> : null}
+        <span className={`hm-thinking__chevron${open ? ' hm-thinking__chevron--open' : ''}`} aria-hidden="true">
+          <Icon name="chevR" size={12} />
+        </span>
+      </button>
+      {open && (
+        <div ref={bodyRef} className="hm-thinking__body hm-thinking__body--live">
+          <ReactMarkdown remarkPlugins={[remarkGfm]} components={MARKDOWN_COMPONENTS}>{cleaned}</ReactMarkdown>
+        </div>
+      )}
     </div>
   );
 }

@@ -46,16 +46,19 @@ export function joinAssistantText(messages: Message[]): string {
 
 export function collectThinkingParts(messages: Message[]): string[] {
   const parts: string[] = [];
+  const add = (value: string | undefined) => {
+    const cleaned = value?.trim();
+    if (cleaned && !parts.includes(cleaned)) parts.push(cleaned);
+  };
+
   for (const message of messages) {
-    if (message.thinkingParts && message.thinkingParts.length > 0) {
-      for (const part of message.thinkingParts) {
-        const cleaned = part.trim();
-        if (cleaned) parts.push(cleaned);
-      }
-      continue;
-    }
+    const messageParts = message.thinkingParts?.map((part) => part.trim()).filter(Boolean) ?? [];
+    for (const part of messageParts) add(part);
+
     const single = message.thinking?.trim();
-    if (single) parts.push(single);
+    // History normalization may mirror thinkingParts into thinking by joining
+    // them. Keep a distinct stream chunk, but never render that mirror twice.
+    if (single && single !== messageParts.join('\n\n') && !messageParts.includes(single)) add(single);
   }
   return parts;
 }

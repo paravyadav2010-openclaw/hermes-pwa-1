@@ -18,6 +18,7 @@ import { Composer } from '../components/Composer';
 import { ProfileModelBar } from '../components/ProfileModelBar';
 import { TodoPanel } from '../components/TodoPanel';
 import { ApprovalDock } from '../components/ApprovalDock';
+import { ClarifyDock } from '../components/ClarifyDock';
 import { PinnedMessagePill, pinnedMessagePreview, type PinnedMessage } from '../components/PinnedMessagePill';
 import {
   MAX_ATTACHMENT_BYTES,
@@ -28,7 +29,7 @@ import {
 } from '../components/attachmentLimits';
 import { Icon } from '../components/Icon';
 import { parseMaybeObject } from '../lib/toolView';
-import { pendingApprovalsForMessage, selectPendingApprovals } from '../lib/pendingApprovals';
+import { pendingApprovalsForMessage, selectPendingApprovals, selectPendingClarifies } from '../lib/pendingApprovals';
 
 interface ChatProps {
   rpc: RpcClient;
@@ -134,6 +135,7 @@ export function Chat({ rpc, rest, onNavigate }: ChatProps) {
     storedSessionId,
   } = useChatStore();
   const pendingApprovals = useActivityStore(useShallow((s) => selectPendingApprovals(s.items)));
+  const pendingClarifies = useActivityStore(useShallow((s) => selectPendingClarifies(s.items)));
   const pendingApprovalCount = pendingApprovals.length;
   const { sessions, load } = useSessionsStore();
   const config = useConfigStore((s) => s.config);
@@ -156,6 +158,7 @@ export function Chat({ rpc, rest, onNavigate }: ChatProps) {
 
   const [liveStatus, setLiveStatus] = useState<LiveStatus>({ text: '' });
   const [composerLayoutVersion, setComposerLayoutVersion] = useState(0);
+  const [showJumpToBottom, setShowJumpToBottom] = useState(false);
   // The profile picker writes the sticky selection. Explicit session.create /
   // session.resume calls can safely use it even though this dashboard process
   // itself was launched under a different profile.
@@ -204,6 +207,13 @@ export function Chat({ rpc, rest, onNavigate }: ChatProps) {
       return !owner || activeSessionIds.includes(owner);
     });
   }, [pendingApprovals, activeSessionIds]);
+  const scopedPendingClarifies = useMemo(() => {
+    if (activeSessionIds.length === 0) return pendingClarifies;
+    return pendingClarifies.filter((clarify) => {
+      const owner = clarify.sourceSessionId ?? clarify.sessionId;
+      return !owner || activeSessionIds.includes(owner);
+    });
+  }, [pendingClarifies, activeSessionIds]);
   const latestTodoTool = useMemo(() => {
     const lastMessage = messages.at(-1);
     return lastMessage?.role === 'assistant'
@@ -620,6 +630,7 @@ export function Chat({ rpc, rest, onNavigate }: ChatProps) {
       if (!current) return;
       current.scrollTop = current.scrollHeight;
       forceScrollRef.current = false;
+      setShowJumpToBottom(false);
     };
     if (typeof window.requestAnimationFrame === 'function') {
       scrollFrameKindRef.current = 'animation';
@@ -646,7 +657,22 @@ export function Chat({ rpc, rest, onNavigate }: ChatProps) {
   function onScroll() {
     const el = listRef.current;
     if (!el) return;
-    atBottomRef.current = el.scrollTop + el.clientHeight >= el.scrollHeight - 20;
+    const distanceFromBottom = el.scrollHeight - el.scrollTop - el.clientHeight;
+    atBottomRef.current = distanceFromBottom <= 20;
+    setShowJumpToBottom(distanceFromBottom > 96);
+  }
+
+  function jumpToBottom() {
+    const el = listRef.current;
+    if (!el) return;
+    atBottomRef.current = true;
+    forceScrollRef.current = true;
+    setShowJumpToBottom(false);
+    if (typeof el.scrollTo === 'function') {
+      el.scrollTo({ top: el.scrollHeight, behavior: 'smooth' });
+    } else {
+      el.scrollTop = el.scrollHeight;
+    }
   }
 
   const currentSession = sessions.find((s) => {
@@ -1016,11 +1042,19 @@ export function Chat({ rpc, rest, onNavigate }: ChatProps) {
 
         {error ? <div className="hm-warning-banner hm-warning-banner--error">{error}</div> : null}
       </div>
+      {showJumpToBottom ? (
+        <button type="button" className="hm-chat__jump-bottom" onClick={jumpToBottom} aria-label="Jump to latest message">
+          <Icon name="chevD" size={20} />
+        </button>
+      ) : null}
       <div className="hm-chat-dock">
+        {streaming && latestTodoTool && <div className="hm-chat__todo-dock"><TodoPanel tool={latestTodoTool} /></div>}
         {scopedPendingApprovals.length > 0 && (
           <ApprovalDock rpc={rpc} approvals={scopedPendingApprovals} />
         )}
-        {streaming && latestTodoTool && <div className="hm-chat__todo-dock"><TodoPanel tool={latestTodoTool} /></div>}
+        {scopedPendingClarifies.length > 0 && (
+          <ClarifyDock rpc={rpc} clarifies={scopedPendingClarifies} />
+        )}
         <Composer
           onSend={handleSend}
           slashCommandsRpc={rpc}

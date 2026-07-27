@@ -1,7 +1,8 @@
-import { describe, it, expect, vi } from 'vitest';
+import { afterEach, describe, it, expect, vi } from 'vitest';
 import { render, screen, fireEvent, waitFor } from '@testing-library/react';
 import type { RpcClient } from '@hermes-pwa/core';
 import { Composer } from './Composer';
+import { CLIPBOARD_HISTORY_KEY } from '../lib/clipboardHistory';
 import {
   MAX_ATTACHMENTS_PER_SELECTION,
   MAX_ATTACHMENT_BYTES,
@@ -29,6 +30,10 @@ function makeSizedFile(name: string, size: number): File {
 }
 
 describe('Composer', () => {
+  afterEach(() => {
+    window.localStorage.clear();
+  });
+
   it('renders input and send button', () => {
     render(<Composer onSend={vi.fn()} onStop={vi.fn()} busy={false} />);
     expect(screen.getByPlaceholderText(/Message Hermes/i)).toBeInTheDocument();
@@ -56,6 +61,19 @@ describe('Composer', () => {
 
     await waitFor(() => expect(readText).toHaveBeenCalled());
     expect(input).toHaveValue('before clipboard textafter');
+  });
+
+  it('pastes a selected recent copy at the composer cursor', () => {
+    window.localStorage.setItem(CLIPBOARD_HISTORY_KEY, JSON.stringify(['first saved copy', 'second saved copy']));
+    render(<Composer onSend={vi.fn()} onStop={vi.fn()} busy={false} />);
+
+    const input = screen.getByLabelText('Message input') as HTMLTextAreaElement;
+    fireEvent.change(input, { target: { value: 'before after' } });
+    input.setSelectionRange(7, 7);
+    fireEvent.click(screen.getByRole('button', { name: /Add attachment/i }));
+    fireEvent.click(screen.getByRole('menuitem', { name: /Paste recent copy 2/i }));
+
+    expect(input).toHaveValue('before second saved copyafter');
   });
 
   it('does not send when input is empty', () => {

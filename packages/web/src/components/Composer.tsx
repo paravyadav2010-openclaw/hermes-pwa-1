@@ -2,6 +2,7 @@ import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import type { Message, RpcClient } from '@hermes-pwa/core';
 import { Icon } from './Icon';
 import { AttachMenu } from './AttachMenu';
+import { loadClipboardHistory, pushClipboardHistory } from '../lib/clipboardHistory';
 import { useVoiceRecorder } from '../hooks/useVoiceRecorder';
 import { useVoiceConversation } from '../hooks/useVoiceConversation';
 import {
@@ -169,6 +170,7 @@ export function Composer({
   const [attachments, setAttachments] = useState<AttachmentDraft[]>([]);
   const [voiceModeEnabled, setVoiceModeEnabled] = useState(false);
   const [attachMenuOpen, setAttachMenuOpen] = useState(false);
+  const [clipboardHistory, setClipboardHistory] = useState<string[]>(() => loadClipboardHistory());
   const [slashItems, setSlashItems] = useState<SlashCommandItem[]>([]);
   const [slashLoading, setSlashLoading] = useState(false);
   const [slashError, setSlashError] = useState<string | undefined>();
@@ -193,24 +195,34 @@ export function Composer({
     textareaRef.current?.focus();
   }, []);
 
-  const pasteClipboardIntoComposer = useCallback(() => {
+  const insertTextAtCursor = useCallback((clipboardText: string) => {
     const input = textareaRef.current;
-    if (!input || !navigator.clipboard?.readText) return;
+    if (!input || !clipboardText) return;
     const start = input.selectionStart ?? input.value.length;
     const end = input.selectionEnd ?? start;
+    setText((current) => `${current.slice(0, start)}${clipboardText}${current.slice(end)}`);
+    setSlashSuppressedText(undefined);
+    window.requestAnimationFrame(() => {
+      input.focus();
+      const caret = start + clipboardText.length;
+      input.setSelectionRange(caret, caret);
+    });
+  }, []);
 
+  const pasteClipboardIntoComposer = useCallback(() => {
+    if (!navigator.clipboard?.readText) return;
     void navigator.clipboard.readText().then((clipboardText) => {
       if (!clipboardText) return;
-      setText((current) => `${current.slice(0, start)}${clipboardText}${current.slice(end)}`);
-      setSlashSuppressedText(undefined);
-      window.requestAnimationFrame(() => {
-        input.focus();
-        const caret = start + clipboardText.length;
-        input.setSelectionRange(caret, caret);
-      });
+      setClipboardHistory(pushClipboardHistory(clipboardText));
+      insertTextAtCursor(clipboardText);
     }).catch(() => {
       // Clipboard permission can be denied by the browser; leave the draft unchanged.
     });
+  }, [insertTextAtCursor]);
+
+  const toggleAttachMenu = useCallback(() => {
+    setClipboardHistory(loadClipboardHistory());
+    setAttachMenuOpen((open) => !open);
   }, []);
 
   const voiceRecorder = useVoiceRecorder({
@@ -519,8 +531,8 @@ export function Composer({
         <button
           type="button"
           className="hm-composer__action"
-          onClick={() => setAttachMenuOpen((v) => !v)}
-          disabled={isRecording || isVoiceBusy || (!onUploadFile && !canPasteClipboard)}
+          onClick={toggleAttachMenu}
+          disabled={isRecording || isVoiceBusy || (!onUploadFile && !canPasteClipboard && clipboardHistory.length === 0)}
           aria-label="Add attachment"
         >
           <Icon name="plus" size={19} />
@@ -530,7 +542,9 @@ export function Composer({
           onClose={() => setAttachMenuOpen(false)}
           onFiles={handleFilesSelected}
           allowFiles={Boolean(onUploadFile)}
-          onPaste={pasteClipboardIntoComposer}
+          onPasteCurrent={canPasteClipboard ? pasteClipboardIntoComposer : undefined}
+          clipboardHistory={clipboardHistory}
+          onPasteHistory={insertTextAtCursor}
         />
 
         <textarea

@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState } from 'react';
+import { useMemo, useState } from 'react';
 import type { RpcClient, ToolCall } from '@hermes-pwa/core';
 import { Icon } from './Icon';
 import { buildToolView, truncate } from '../lib/toolView';
@@ -15,7 +15,7 @@ interface ToolRowProps {
   rpc: RpcClient;
   streaming?: boolean | undefined;
   onOpenChange?: (toolId: string, open: boolean) => void;
-  /** Solo active tool outside the collapsed group — always expanded chrome. */
+  /** Solo active tool outside the collapsed group — initially expanded. */
   standalone?: boolean;
 }
 
@@ -24,20 +24,12 @@ export function ToolRow({ tool, rpc: _rpc, streaming, onOpenChange, standalone =
   const isPendingTool = view.status === 'running' || tool.output === undefined;
   const isRunning = isPendingTool && (Boolean(streaming) || standalone);
   const hasDetail = Boolean(view.detail && view.detail.trim() && view.detail.trim() !== view.title.trim());
-  // Standalone active tool is always open; settled rows start collapsed.
+  // The newest tool begins open; the user can still collapse it.
   const [expanded, setExpanded] = useState(standalone || Boolean(isPendingTool && hasDetail));
   const [copied, setCopied] = useState(false);
-  const open = standalone ? true : expanded && hasDetail;
-
-  useEffect(() => {
-    if (standalone || (isPendingTool && hasDetail)) {
-      setExpanded(true);
-      onOpenChange?.(tool.id, true);
-    }
-  }, [standalone, isPendingTool, hasDetail, tool.id, onOpenChange]);
+  const open = expanded && hasDetail;
 
   const toggle = () => {
-    if (standalone) return; // active tool stays open
     if (!hasDetail) return;
     const next = !open;
     setExpanded(next);
@@ -70,9 +62,9 @@ export function ToolRow({ tool, rpc: _rpc, streaming, onOpenChange, standalone =
       <button
         type="button"
         className="hm-tool-group__row-button"
-        disabled={standalone || !hasDetail}
+        disabled={!hasDetail}
         onClick={toggle}
-        aria-expanded={hasDetail || standalone ? open : undefined}
+        aria-expanded={hasDetail ? open : undefined}
         title={view.subtitle || view.title}
       >
         <span className="hm-tool-group__row-icon">
@@ -84,7 +76,7 @@ export function ToolRow({ tool, rpc: _rpc, streaming, onOpenChange, standalone =
         </span>
         <span className="hm-tool-group__row-title">{truncate(view.title, 140)}</span>
         {view.countLabel && <span className="hm-tool-group__row-count">{view.countLabel}</span>}
-        {!standalone && hasDetail && (
+        {hasDetail && (
           <span className={`hm-tool-group__row-chevron${open ? ' hm-tool-group__row-chevron--open' : ''}`} aria-hidden="true">
             <Icon name="chevR" size={12} />
           </span>

@@ -20,12 +20,17 @@ describe('ThinkingGroup', () => {
     expect(screen.getByText('first plan')).toBeInTheDocument();
   });
 
-  it('renders live thinking outside any collapsible group chrome', () => {
+  it('renders live thinking outside the history group and lets the user collapse it', () => {
     const { container } = render(<LiveThinking text="streaming reason" />);
     expect(container.querySelector('.hm-thinking--live')).not.toBeNull();
     expect(container.querySelector('[data-hm-thinking-live="1"]')).not.toBeNull();
     expect(screen.getByText('streaming reason')).toBeInTheDocument();
     expect(screen.queryByRole('button', { name: /thoughts/i })).not.toBeInTheDocument();
+    const latest = screen.getByRole('button', { name: /Thinking/i });
+    expect(latest).toHaveAttribute('aria-expanded', 'true');
+    fireEvent.click(latest);
+    expect(latest).toHaveAttribute('aria-expanded', 'false');
+    expect(screen.queryByText('streaming reason')).not.toBeInTheDocument();
   });
 
   it('always stays collapsed regardless of streaming', () => {
