@@ -62,6 +62,14 @@ describe('Chat', () => {
     expect(screen.getByText(/Start a conversation/i)).toBeInTheDocument();
   });
 
+  it('adds a real live-edge spacer after transcript content', () => {
+    core.useChatStore.setState({
+      messages: [{ id: 'message-1', role: 'assistant', text: 'Latest response', createdAt: undefined }],
+    });
+    const { container } = render(<Chat rpc={rpcMock} rest={restMock} />);
+    expect(container.querySelector('.hm-chat__live-edge-spacer')).toBeInTheDocument();
+  });
+
   it('shows a jump-to-latest button only when the transcript is meaningfully above the bottom', () => {
     core.useChatStore.setState({
       messages: [{ id: 'message-1', role: 'assistant', text: 'Latest response', createdAt: undefined }],

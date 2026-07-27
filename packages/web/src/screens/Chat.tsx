@@ -146,6 +146,8 @@ export function Chat({ rpc, rest, onNavigate }: ChatProps) {
   const connection = useConnectionStore();
   const profiles = useProfilesStore((s) => s.profiles);
   const listRef = useRef<HTMLDivElement>(null);
+  const dockRef = useRef<HTMLDivElement>(null);
+  const dockHeightRef = useRef(0);
   const atBottomRef = useRef(true);
   const forceScrollRef = useRef(false);
   const scrollFrameRef = useRef<number | null>(null);
@@ -231,6 +233,25 @@ export function Chat({ rpc, rest, onNavigate }: ChatProps) {
 
   const handleComposerLayoutChange = useCallback(() => {
     setComposerLayoutVersion((value) => value + 1);
+  }, []);
+
+  // The dock overlays the canvas while scrolling. Reserve its measured height
+  // at the transcript end so the latest message still settles above it.
+  useEffect(() => {
+    const dock = dockRef.current;
+    if (!dock) return;
+    const syncDockHeight = () => {
+      const nextHeight = dock.offsetHeight;
+      if (nextHeight === dockHeightRef.current) return;
+      dockHeightRef.current = nextHeight;
+      listRef.current?.style.setProperty('--hm-chat-dock-height', `${nextHeight}px`);
+      setComposerLayoutVersion((value) => value + 1);
+    };
+    syncDockHeight();
+    if (typeof ResizeObserver === 'undefined') return;
+    const observer = new ResizeObserver(syncDockHeight);
+    observer.observe(dock);
+    return () => observer.disconnect();
   }, []);
 
   const markLocalInputShouldScroll = useCallback(() => {
@@ -1041,13 +1062,14 @@ export function Chat({ rpc, rest, onNavigate }: ChatProps) {
         )}
 
         {error ? <div className="hm-warning-banner hm-warning-banner--error">{error}</div> : null}
+        {messages.length > 0 ? <div className="hm-chat__live-edge-spacer" aria-hidden="true" /> : null}
       </div>
       {showJumpToBottom ? (
         <button type="button" className="hm-chat__jump-bottom" onClick={jumpToBottom} aria-label="Jump to latest message">
           <Icon name="chevD" size={20} />
         </button>
       ) : null}
-      <div className="hm-chat-dock">
+      <div ref={dockRef} className="hm-chat-dock">
         {streaming && latestTodoTool && <div className="hm-chat__todo-dock"><TodoPanel tool={latestTodoTool} /></div>}
         {scopedPendingApprovals.length > 0 && (
           <ApprovalDock rpc={rpc} approvals={scopedPendingApprovals} />

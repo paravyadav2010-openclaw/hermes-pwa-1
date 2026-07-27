@@ -507,17 +507,94 @@ a {
   text-align: center;
 }
 
-/* ── Unified chat dock: composer + profile bar, zero gap ─── */
+/* Infinite canvas: scrolling content passes under this foreground gradient. */
 .hm-chat-dock {
-  flex: 0 0 auto;
+  position: absolute;
+  z-index: 20;
+  right: 0;
+  bottom: 0;
+  left: 0;
   display: flex;
   flex-direction: column;
   gap: 0;
   margin: 0;
   padding: 0;
-  background: var(--hm-color-surface);
-  border-top: 1px solid var(--hm-color-border);
+  background: transparent;
+  border: 0;
   box-shadow: none;
+  isolation: isolate;
+}
+
+.hm-chat-dock > * {
+  position: relative;
+  z-index: 1;
+}
+
+.hm-chat-dock::before {
+  position: absolute;
+  z-index: 0;
+  right: 0;
+  bottom: 0;
+  left: 0;
+  height: calc(100% + 84px);
+  content: '';
+  pointer-events: none;
+  background: linear-gradient(
+    to bottom,
+    color-mix(in srgb, var(--hm-color-bg) 0%, transparent) 0%,
+    color-mix(in srgb, var(--hm-color-bg) 54%, transparent) 34%,
+    color-mix(in srgb, var(--hm-color-bg) 90%, transparent) 66%,
+    var(--hm-color-bg) 100%
+  );
+}
+
+/* A small, slow accent halo gives the original composer pill depth. */
+.hm-chat-dock::after {
+  position: absolute;
+  z-index: 0;
+  right: 4%;
+  bottom: 14px;
+  left: 4%;
+  height: 122px;
+  content: '';
+  pointer-events: none;
+  background: radial-gradient(
+    ellipse at 50% 88%,
+    color-mix(in srgb, var(--hm-color-accent) 26%, transparent) 0%,
+    color-mix(in srgb, var(--hm-color-accent) 10%, transparent) 42%,
+    transparent 74%
+  );
+  background-size: 165% 185%;
+  background-position: 0% 100%;
+  filter: blur(24px) saturate(1.2);
+  opacity: 0.76;
+  transform: translate3d(0, 0, 0) scaleX(0.94);
+  animation: hm-composer-aura 3.8s cubic-bezier(0.37, 0, 0.63, 1) infinite;
+  will-change: background-position, transform, opacity;
+}
+
+@keyframes hm-composer-aura {
+  0%,
+  100% {
+    opacity: 0.38;
+    background-position: 0% 100%;
+    transform: translate3d(-16px, 9px, 0) scaleX(0.82);
+  }
+  25% {
+    opacity: 0.78;
+    background-position: 68% 28%;
+    transform: translate3d(14px, -9px, 0) scaleX(1.1);
+  }
+  50% {
+    opacity: 0.5;
+    background-position: 100% 0%;
+    transform: translate3d(22px, 4px, 0) scaleX(0.9);
+  }
+  75% {
+    opacity: 0.82;
+    background-position: 32% 68%;
+    transform: translate3d(-12px, -7px, 0) scaleX(1.08);
+  }
 }
 
 .hm-chat-dock .hm-composer {
@@ -1321,8 +1398,8 @@ a {
 }
 
 .hm-chat__messages {
-  flex: 1 1 0;
-  height: 0;
+  flex: 1 1 auto;
+  height: auto;
   overflow-y: auto;
   overflow-x: hidden;
   padding: var(--hm-space-4) var(--hm-space-4) var(--hm-space-5);
@@ -1336,12 +1413,20 @@ a {
   touch-action: pan-y;
 }
 
+/* A real flex child, rather than padding, guarantees iOS includes the live-edge
+   clearance in scrollHeight before it snaps new content to the bottom. */
+.hm-chat__live-edge-spacer {
+  flex: 0 0 calc(max(116px, var(--hm-chat-dock-height, 116px)) + 48px);
+  width: 100%;
+  pointer-events: none;
+}
+
 /* One-tap return to the live edge without fighting normal transcript scrolling. */
 .hm-chat__jump-bottom {
   position: absolute;
   z-index: 3;
   left: 50%;
-  bottom: 128px;
+  bottom: calc(max(116px, var(--hm-chat-dock-height, 116px)) + 18px);
   display: inline-grid;
   width: 42px;
   height: 42px;
@@ -1391,7 +1476,8 @@ a {
 }
 
 @media (prefers-reduced-motion: reduce) {
-  .hm-message--reveal {
+  .hm-message--reveal,
+  .hm-chat-dock::after {
     animation: none;
   }
 }
@@ -3533,8 +3619,8 @@ button.hm-copyable {
 .hm-chat__todo-dock {
   flex: 0 0 auto;
   padding: 0 10px 6px;
-  background: var(--hm-color-surface);
-  border-top: 1px solid var(--hm-color-border);
+  background: transparent;
+  border: 0;
 }
 
 .hm-chat__todo-dock .hm-todo-panel {
@@ -3550,8 +3636,8 @@ button.hm-copyable {
   flex-direction: column;
   gap: 8px;
   padding: 8px 10px 6px;
-  background: var(--hm-color-surface);
-  border-top: 1px solid var(--hm-color-border);
+  background: transparent;
+  border: 0;
   max-height: min(42vh, 320px);
   overflow-y: auto;
   -webkit-overflow-scrolling: touch;
@@ -3673,8 +3759,8 @@ button.hm-copyable {
   flex-direction: column;
   gap: 8px;
   padding: 8px 10px 6px;
-  background: var(--hm-color-surface);
-  border-top: 1px solid var(--hm-color-border);
+  background: transparent;
+  border: 0;
   max-height: min(42vh, 320px);
   overflow-y: auto;
   -webkit-overflow-scrolling: touch;
