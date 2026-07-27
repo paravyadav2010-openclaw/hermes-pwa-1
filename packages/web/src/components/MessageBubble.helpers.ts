@@ -250,32 +250,70 @@ function Lightbox({ images, startIndex, onClose }: { images: GalleryImage[]; sta
     return () => window.removeEventListener('keydown', onKey);
   }, [onClose, prev, next]);
 
-  // Track drag offset for sliding feel
-  const [dragOffset, setDragOffset] = useState(0);
-  const dragStart = useRef<{ x: number; time: number } | null>(null);
+  // Horizontal = gallery; vertical up/down = dismiss (iOS Photos-style)
+  const [dragX, setDragX] = useState(0);
+  const [dragY, setDragY] = useState(0);
+  const dragStart = useRef<{ x: number; y: number; time: number } | null>(null);
+  const axisLock = useRef<'x' | 'y' | null>(null);
+  const dismissingRef = useRef(false);
 
-  // Swipe handling with sliding animation
   function onTouchStart(e: React.TouchEvent) {
-    dragStart.current = { x: e.touches[0].clientX, time: Date.now() };
-    setDragOffset(0);
+    if (dismissingRef.current) return;
+    dragStart.current = { x: e.touches[0].clientX, y: e.touches[0].clientY, time: Date.now() };
+    axisLock.current = null;
+    setDragX(0);
+    setDragY(0);
   }
   function onTouchMove(e: React.TouchEvent) {
-    if (!dragStart.current) return;
-    let dx = e.touches[0].clientX - dragStart.current.x;
-    // Rubber-band at edges: dampen drag when past first/last
-    const atEdge = (dx > 0 && index === 0) || (dx < 0 && index === images.length - 1);
-    if (atEdge) dx = dx * 0.3;
-    setDragOffset(dx);
+    if (!dragStart.current || dismissingRef.current) return;
+    const dx = e.touches[0].clientX - dragStart.current.x;
+    const dy = e.touches[0].clientY - dragStart.current.y;
+
+    // Lock axis after a small movement so gallery vs dismiss don't fight
+    if (!axisLock.current) {
+      if (Math.abs(dx) < 8 && Math.abs(dy) < 8) return;
+      axisLock.current = Math.abs(dy) > Math.abs(dx) ? 'y' : 'x';
+    }
+
+    if (axisLock.current === 'y') {
+      setDragY(dy);
+      setDragX(0);
+      return;
+    }
+
+    let adjX = dx;
+    const atEdge = (adjX > 0 && index === 0) || (adjX < 0 && index === images.length - 1);
+    if (atEdge) adjX = adjX * 0.3;
+    setDragX(adjX);
+    setDragY(0);
   }
   function onTouchEnd(e: React.TouchEvent) {
-    if (!dragStart.current) return;
+    if (!dragStart.current || dismissingRef.current) return;
     const dx = e.changedTouches[0].clientX - dragStart.current.x;
+    const dy = e.changedTouches[0].clientY - dragStart.current.y;
     const elapsed = Math.max(1, Date.now() - dragStart.current.time);
-    const velocity = Math.abs(dx) / elapsed;
+    const axis = axisLock.current;
     dragStart.current = null;
-    setDragOffset(0);
-    // Fast flick or significant drag
-    if ((Math.abs(dx) > 60 || velocity > 0.3) && Math.abs(dx) > 20) {
+    axisLock.current = null;
+
+    if (axis === 'y') {
+      const velocityY = Math.abs(dy) / elapsed;
+      // Swipe up or down closes
+      if (Math.abs(dy) > 80 || (velocityY > 0.45 && Math.abs(dy) > 28)) {
+        dismissingRef.current = true;
+        setDragY(dy < 0 ? -Math.max(viewportBox.height || window.innerHeight, 400) : Math.max(viewportBox.height || window.innerHeight, 400));
+        window.setTimeout(() => onClose(), 160);
+        return;
+      }
+      setDragY(0);
+      setDragX(0);
+      return;
+    }
+
+    setDragX(0);
+    setDragY(0);
+    const velocityX = Math.abs(dx) / elapsed;
+    if ((Math.abs(dx) > 60 || velocityX > 0.3) && Math.abs(dx) > 20) {
       if (dx < 0) next();
       else prev();
     }
@@ -288,8 +326,15 @@ function Lightbox({ images, startIndex, onClose }: { images: GalleryImage[]; sta
   if (!images[index]) return null;
 
   const widthPx = slideWidth || viewportBox.width || (typeof window !== 'undefined' ? window.innerWidth : 0);
+  const heightPx = viewportBox.height || (typeof window !== 'undefined' ? window.innerHeight : 0);
+  const dismissProgress = heightPx > 0 ? Math.min(1, Math.abs(dragY) / (heightPx * 0.35)) : 0;
+  const bgAlpha = Math.max(0.35, 0.96 * (1 - dismissProgress * 0.75));
+  const dragging = dragX !== 0 || dragY !== 0;
+
   const boxStyle: React.CSSProperties = {
     ...LIGHTBOX_INLINE_STYLE,
+    background: `rgba(0, 0, 0, ${bgAlpha})`,
+    transition: dragging || dismissingRef.current ? 'none' : 'background 0.2s ease',
     ...(viewportBox.width > 0
       ? {
           top: viewportBox.top,
@@ -303,6 +348,8 @@ function Lightbox({ images, startIndex, onClose }: { images: GalleryImage[]; sta
         }
       : null),
   };
+
+  const chromeOpacity = Math.max(0, 1 - dismissProgress * 1.4);
 
   // Render all images as a sliding strip
   return createElement('div', {
@@ -318,13 +365,17 @@ function Lightbox({ images, startIndex, onClose }: { images: GalleryImage[]; sta
     onTouchEnd,
   },
     // Counter
-    images.length > 1 && createElement('span', { className: 'hm-md-img-lightbox__counter' },
+    images.length > 1 && createElement('span', {
+      className: 'hm-md-img-lightbox__counter',
+      style: { opacity: chromeOpacity },
+    },
       `${index + 1} / ${images.length}`,
     ),
     // Prev button
     index > 0 && createElement('button', {
       type: 'button',
       className: 'hm-md-img-lightbox__nav hm-md-img-lightbox__nav--prev',
+      style: { opacity: chromeOpacity },
       onClick: (e: React.MouseEvent) => { e.stopPropagation(); prev(); },
       'aria-label': 'Previous image',
     },
@@ -332,13 +383,14 @@ function Lightbox({ images, startIndex, onClose }: { images: GalleryImage[]; sta
         createElement('path', { d: 'M15 18l-6-6 6-6' }),
       ),
     ),
-    // Sliding strip — pixel translate (not %) so width is one viewport
+    // Sliding strip — pixel translate; vertical drag dismisses
     createElement('div', {
       className: 'hm-md-img-lightbox__track',
       style: {
-        transform: `translate3d(${(-index * widthPx) + dragOffset}px, 0, 0)`,
-        transition: dragOffset !== 0 ? 'none' : 'transform 0.35s cubic-bezier(0.25, 1, 0.5, 1)',
+        transform: `translate3d(${(-index * widthPx) + dragX}px, ${dragY}px, 0) scale(${1 - dismissProgress * 0.08})`,
+        transition: dragging || dismissingRef.current ? 'none' : 'transform 0.35s cubic-bezier(0.25, 1, 0.5, 1)',
         width: widthPx > 0 ? `${images.length * widthPx}px` : undefined,
+        opacity: Math.max(0.25, 1 - dismissProgress * 0.35),
       },
     },
       ...images.map((img) =>
@@ -361,6 +413,7 @@ function Lightbox({ images, startIndex, onClose }: { images: GalleryImage[]; sta
     index < images.length - 1 && createElement('button', {
       type: 'button',
       className: 'hm-md-img-lightbox__nav hm-md-img-lightbox__nav--next',
+      style: { opacity: chromeOpacity },
       onClick: (e: React.MouseEvent) => { e.stopPropagation(); next(); },
       'aria-label': 'Next image',
     },
@@ -372,6 +425,7 @@ function Lightbox({ images, startIndex, onClose }: { images: GalleryImage[]; sta
     createElement('button', {
       type: 'button',
       className: 'hm-md-img-lightbox__close',
+      style: { opacity: chromeOpacity },
       onClick: (e: React.MouseEvent) => { e.stopPropagation(); onClose(); },
       'aria-label': 'Close',
     },

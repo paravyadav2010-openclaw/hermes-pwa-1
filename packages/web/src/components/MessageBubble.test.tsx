@@ -503,4 +503,33 @@ describe('MessageBubble', () => {
     document.getElementById('hm-lightbox-root')?.remove();
     wrap.remove();
   });
+
+  it('closes the lightbox on vertical swipe up or down', async () => {
+    vi.useFakeTimers({ shouldAdvanceTime: true });
+    const dataUrl =
+      'data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mP8z8BQDwAEhQGAhKmMIQAAAABJRU5ErkJggg==';
+    render(
+      <ImageGalleryProvider>
+        <MessageImage src={dataUrl} alt="swipe-close" />
+      </ImageGalleryProvider>,
+    );
+
+    fireEvent.click(screen.getByAltText('swipe-close'));
+    await waitFor(() => {
+      expect(document.querySelector('.hm-md-img-lightbox')).toBeTruthy();
+    });
+
+    const lb = document.querySelector('.hm-md-img-lightbox') as HTMLElement;
+    fireEvent.touchStart(lb, { touches: [{ clientX: 100, clientY: 200 }] });
+    fireEvent.touchMove(lb, { touches: [{ clientX: 100, clientY: 320 }] });
+    fireEvent.touchEnd(lb, { changedTouches: [{ clientX: 100, clientY: 320 }] });
+
+    await vi.advanceTimersByTimeAsync(200);
+    await waitFor(() => {
+      expect(document.querySelector('.hm-md-img-lightbox')).toBeNull();
+    });
+
+    document.getElementById('hm-lightbox-root')?.remove();
+    vi.useRealTimers();
+  });
 });
