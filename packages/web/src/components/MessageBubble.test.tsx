@@ -1,5 +1,5 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest';
-import { render, screen } from '@testing-library/react';
+import { render, screen, fireEvent } from '@testing-library/react';
 import { MessageBubble } from './MessageBubble';
 import { areMessageBubblePropsEqual } from './MessageBubble.helpers';
 import { useActivityStore, useChatStore, type Approval, type RpcClient } from '@hermes-pwa/core';
@@ -52,6 +52,32 @@ describe('MessageBubble', () => {
     const message = screen.getByText('Focus on tests.').closest('.hm-message');
     expect(message).toHaveClass('hm-message--steer');
     expect(screen.getByText('Steer message')).toBeInTheDocument();
+  });
+
+  it('keeps combined assistant prose under thinking and tools for a multi-row turn', () => {
+    const { container } = render(
+      <MessageBubble
+        rpc={rpcMock}
+        message={{
+          id: 'a-multi',
+          role: 'assistant',
+          text: 'Final answer only',
+          thinking: 'hidden plan',
+          toolCalls: [{ id: 't1', name: 'terminal', input: { command: 'ls' }, output: 'ok' }],
+          createdAt: undefined,
+        }}
+      />,
+    );
+
+    const root = container.querySelector('.hm-assistant-turn');
+    expect(root).not.toBeNull();
+    const actions = root?.querySelector('.hm-message__actions');
+    const prose = root?.querySelector('.hm-message__text');
+    expect(actions).not.toBeNull();
+    expect(prose).not.toBeNull();
+    expect(actions!.compareDocumentPosition(prose!) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
+    expect(prose).toHaveTextContent('Final answer only');
+    expect(actions!.textContent || '').not.toContain('Final answer only');
   });
 
   it('renders assistant message with markdown', () => {
@@ -122,8 +148,12 @@ describe('MessageBubble', () => {
         }}
       />,
     );
-    expect(screen.getByText(/Search/)).toBeInTheDocument();
+    // Settled tools fold into the collapsible group header.
+    const header = screen.getByRole('button', { name: /1 tool/i });
+    expect(header).toBeInTheDocument();
     expect(screen.queryByText('Tool actions')).not.toBeInTheDocument();
+    fireEvent.click(header);
+    expect(screen.getByText(/Search/i)).toBeInTheDocument();
   });
 
   it('keeps inline approval visible for a pending tool after restore clears streaming', () => {

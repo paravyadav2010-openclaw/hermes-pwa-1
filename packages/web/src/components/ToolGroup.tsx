@@ -80,22 +80,25 @@ function groupSummary(tools: ToolCall[], streaming?: boolean): string {
 }
 
 export function ToolGroup({ tools, rpc, streaming }: ToolGroupProps) {
-  const [groupOpen, setGroupOpen] = useState(Boolean(streaming));
+  const hasPending = tools.some((t) => t.output === undefined);
+  const forceOpen = Boolean(streaming || hasPending);
+  const [groupOpen, setGroupOpen] = useState(forceOpen);
   const [expandedToolId, setExpandedToolId] = useState<string | undefined>();
 
-  // Match Thinking: open while the turn streams, collapse when finished.
+  // Open while the turn streams or any tool still needs attention (e.g. approval).
+  // Collapse only when everything is settled.
   useEffect(() => {
-    if (streaming) {
+    if (forceOpen) {
       setGroupOpen(true);
       return;
     }
     setGroupOpen(false);
-  }, [streaming]);
+  }, [forceOpen]);
 
   if (tools.length === 0) return null;
 
-  const summary = groupSummary(tools, streaming);
-  const hasRunning = Boolean(streaming && tools.some((t) => t.output === undefined));
+  const summary = groupSummary(tools, streaming || hasPending);
+  const hasRunning = Boolean((streaming || hasPending) && hasPending);
   const bodyOpen = groupOpen;
   const bounded = tools.length >= 3 && bodyOpen && !expandedToolId;
 

@@ -2459,6 +2459,31 @@ a {
   background: transparent !important;
 }
 
+.hm-assistant-turn {
+  display: flex !important;
+  flex-direction: column !important;
+  align-items: stretch !important;
+  gap: 0;
+  width: 100%;
+}
+
+.hm-assistant-turn > .hm-message__actions {
+  order: 1;
+}
+
+.hm-assistant-turn > .hm-message__text {
+  order: 2;
+}
+
+.hm-assistant-turn > .hm-message__meta {
+  order: 3;
+}
+
+.hm-assistant-turn > .hm-message__status,
+.hm-assistant-turn > .hm-message__activity-dots {
+  order: 0;
+}
+
 .hm-message__text > p {
   margin: 0 0 0.65em;
 }
@@ -2792,6 +2817,15 @@ a {
   margin: 0;
 }
 
+/* Live thinking — outside the collapsible group while the model is still reasoning. */
+.hm-thinking--live {
+  margin: 0 0 4px;
+  padding: 6px 8px;
+  border-radius: 12px;
+  border: 1px solid color-mix(in srgb, var(--hm-color-border) 85%, transparent);
+  background: color-mix(in srgb, var(--hm-color-surface-2) 55%, transparent);
+}
+
 .hm-thinking__header {
   display: flex;
   align-items: center;
@@ -2810,10 +2844,22 @@ a {
   -webkit-tap-highlight-color: transparent;
 }
 
+.hm-thinking__header--static {
+  cursor: default;
+  padding: 0 0 4px;
+  min-height: 20px;
+}
+
 .hm-thinking__header:hover,
 .hm-thinking__header:focus-visible {
   background: color-mix(in srgb, var(--hm-color-surface-2) 70%, transparent);
   color: var(--hm-color-text);
+}
+
+.hm-thinking__header--static:hover,
+.hm-thinking__header--static:focus-visible {
+  background: transparent;
+  color: var(--hm-color-text-muted);
 }
 
 .hm-thinking__title {
@@ -2841,6 +2887,168 @@ a {
 
 .hm-thinking__hint {
   display: none;
+}
+
+.hm-thinking__spinner {
+  width: 7px;
+  height: 7px;
+  border-radius: 50%;
+  background: var(--hm-color-warning);
+  animation: hm-pulse 1.5s ease-in-out infinite;
+  flex-shrink: 0;
+}
+
+.hm-thinking__body {
+  margin: 2px 0 3px;
+  padding: 3px 4px 3px 2px;
+  border: 0;
+  color: var(--hm-color-text-muted);
+  font-size: 12px;
+  line-height: 1.4;
+}
+
+.hm-thinking--live .hm-thinking__body {
+  max-height: min(28vh, 180px);
+  overflow-y: auto;
+  -webkit-overflow-scrolling: touch;
+}
+
+/* Settled thinking group — same chrome language as tool group. */
+.hm-thinking-group {
+  width: 100%;
+  max-width: 100%;
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  margin: 0;
+  padding: 0;
+  border: 0;
+  background: transparent;
+}
+
+.hm-thinking-group__header {
+  display: flex !important;
+  flex-direction: row !important;
+  align-items: center !important;
+  gap: 8px !important;
+  width: 100%;
+  min-height: 28px;
+  margin: 0;
+  padding: 4px 6px !important;
+  border: 0 !important;
+  border-radius: 8px !important;
+  background: transparent !important;
+  color: var(--hm-color-text-muted) !important;
+  font-family: inherit !important;
+  font-size: 12px !important;
+  font-weight: var(--hm-fw-medium) !important;
+  text-align: left !important;
+  cursor: pointer;
+  -webkit-tap-highlight-color: transparent;
+}
+
+.hm-thinking-group__header:hover,
+.hm-thinking-group__header:focus-visible {
+  background: color-mix(in srgb, var(--hm-color-surface-2) 70%, transparent) !important;
+  color: var(--hm-color-text) !important;
+}
+
+.hm-thinking-group__header-title {
+  flex: 0 1 auto;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.hm-thinking-group__chevron {
+  margin-left: auto;
+  display: inline-flex !important;
+  align-items: center;
+  justify-content: center;
+  flex: 0 0 auto;
+  color: var(--hm-color-text-muted);
+  opacity: 0.75;
+  transition: transform 0.15s ease;
+}
+
+.hm-thinking-group__chevron--open {
+  transform: rotate(90deg);
+}
+
+.hm-thinking-group__body {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  width: 100%;
+  min-width: 0;
+  margin-top: 2px;
+  padding: 4px 6px 6px;
+  border-radius: 12px;
+  border: 1px solid color-mix(in srgb, var(--hm-color-border) 90%, transparent);
+  background: color-mix(in srgb, var(--hm-color-surface-2) 72%, transparent);
+}
+
+.hm-thinking-group--collapsed .hm-thinking-group__body {
+  display: none;
+}
+
+.hm-thinking-group__row {
+  width: 100%;
+  min-width: 0;
+}
+
+.hm-thinking-group__row-button {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  width: 100%;
+  min-height: 28px;
+  padding: 5px 6px;
+  border: 0;
+  border-radius: 8px;
+  background: transparent;
+  color: color-mix(in srgb, var(--hm-color-text) 78%, var(--hm-color-text-muted) 22%);
+  font-family: inherit;
+  font-size: 12px;
+  font-weight: var(--hm-fw-medium);
+  text-align: left;
+  cursor: pointer;
+}
+
+.hm-thinking-group__row-button:hover,
+.hm-thinking-group__row-button:focus-visible {
+  background: color-mix(in srgb, var(--hm-color-surface) 70%, transparent);
+  color: var(--hm-color-text);
+}
+
+.hm-thinking-group__row-title {
+  flex: 1 1 auto;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.hm-thinking-group__row-chevron {
+  margin-left: auto;
+  display: inline-flex;
+  color: var(--hm-color-text-muted);
+  opacity: 0.7;
+  transition: transform 0.15s ease;
+}
+
+.hm-thinking-group__row-chevron--open {
+  transform: rotate(90deg);
+}
+
+.hm-thinking-group__row-body {
+  margin: 0 0 4px;
+  padding: 4px 6px 6px 8px;
+  color: var(--hm-color-text-muted);
+  font-size: 12px;
+  line-height: 1.4;
 }
 
 .hm-thinking__body {

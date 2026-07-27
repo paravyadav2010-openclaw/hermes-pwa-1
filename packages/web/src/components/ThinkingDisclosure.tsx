@@ -10,12 +10,11 @@ interface ThinkingDisclosureProps {
   label?: string | undefined;
 }
 
+/** Standalone disclosure (tests / legacy). Prefer ThinkingGroup + LiveThinking in turns. */
 export function ThinkingDisclosure({ text, streaming, label = 'Thinking' }: ThinkingDisclosureProps) {
   const cleaned = text.trim();
-  // Desktop drops empty reasoning blocks entirely — no blank "Thinking" row.
   if (!cleaned) return null;
 
-  // Open while streaming; collapse when the turn finishes.
   const [open, setOpen] = useState(Boolean(streaming));
 
   useEffect(() => {

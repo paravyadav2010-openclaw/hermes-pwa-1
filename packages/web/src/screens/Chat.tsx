@@ -12,7 +12,8 @@ import {
   type RpcClient,
   type RestClient,
 } from '@hermes-pwa/core';
-import { MessageBubble } from '../components/MessageBubble';
+import { MessageBubble, AssistantTurn } from '../components/MessageBubble';
+import { groupTranscript } from '../lib/transcriptGrouping';
 import { Composer } from '../components/Composer';
 import { ProfileModelBar } from '../components/ProfileModelBar';
 import { TodoPanel } from '../components/TodoPanel';
@@ -897,19 +898,38 @@ export function Chat({ rpc, rest, onNavigate }: ChatProps) {
             <p className="hm-muted">Open the session drawer to resume history, or send a message to begin a fresh mobile chat.</p>
           </div>
         ) : (
-          messages.map((m, index) => (
-            <MessageBubble
-              key={m.id}
-              message={m}
-              rpc={rpc}
-              isLast={index === messages.length - 1}
-              streaming={streaming}
-              liveStatus={index === messages.length - 1 && streaming ? liveStatus.text : ''}
-              liveFace={undefined}
-              pendingApprovals={pendingApprovalsForMessage(pendingApprovals, index, messages.length)}
-              activeSessionIds={activeSessionIds}
-            />
-          ))
+          groupTranscript(messages).map((item) => {
+            if (item.type === 'single') {
+              return (
+                <MessageBubble
+                  key={item.message.id}
+                  message={item.message}
+                  rpc={rpc}
+                  isLast={item.index === messages.length - 1}
+                  streaming={streaming}
+                  liveStatus={item.index === messages.length - 1 && streaming ? liveStatus.text : ''}
+                  liveFace={undefined}
+                  pendingApprovals={pendingApprovalsForMessage(pendingApprovals, item.index, messages.length)}
+                  activeSessionIds={activeSessionIds}
+                />
+              );
+            }
+
+            const isLastTurn = item.endIndex === messages.length - 1;
+            return (
+              <AssistantTurn
+                key={`turn-${item.messages.map((m) => m.id).join('-')}`}
+                messages={item.messages}
+                rpc={rpc}
+                isLast={isLastTurn}
+                streaming={streaming}
+                liveStatus={isLastTurn && streaming ? liveStatus.text : ''}
+                liveFace={undefined}
+                pendingApprovals={pendingApprovalsForMessage(pendingApprovals, item.endIndex, messages.length)}
+                activeSessionIds={activeSessionIds}
+              />
+            );
+          })
         )}
 
         {error ? <div className="hm-warning-banner hm-warning-banner--error">{error}</div> : null}

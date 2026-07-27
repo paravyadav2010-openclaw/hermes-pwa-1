@@ -1,12 +1,21 @@
 import ReactMarkdown from 'react-markdown';
 import remarkGfm from 'remark-gfm';
 import { memo, useCallback, useEffect, useMemo, useState } from 'react';
-import type { Approval, Message, ToolCall } from '@hermes-pwa/core';
+import type { Approval, Message, RpcClient, ToolCall } from '@hermes-pwa/core';
 import { ToolGroup } from './ToolGroup';
 import { TodoPanel } from './TodoPanel';
-import { ThinkingDisclosure } from './ThinkingDisclosure';
+import { ThinkingGroup, LiveThinking } from './ThinkingGroup';
 import { Icon } from './Icon';
-import { MARKDOWN_COMPONENTS, ImageGalleryProvider, MessageImage, MessageVideo, areMessageBubblePropsEqual, type MessageBubbleProps } from './MessageBubble.helpers';
+import {
+  MARKDOWN_COMPONENTS,
+  ImageGalleryProvider,
+  MessageImage,
+  MessageVideo,
+  areMessageBubblePropsEqual,
+  type MessageBubbleProps,
+} from './MessageBubble.helpers';
+import { collectThinkingParts, joinAssistantText } from '../lib/transcriptGrouping';
+
 
 /** Inline image for the grid (outside ReactMarkdown). */
 function MessageImageInline({ src, alt }: { src: string; alt?: string }) {
@@ -219,8 +228,8 @@ function MessageBubbleView({ message, rpc, isLast, streaming, liveStatus, liveFa
 
   if (isUser) {
     const preprocessed = preprocessMediaRefs(message.text);
-    const { images: imageUrls, videos: videoUrls } = useMemo(() => extractMediaUrls(preprocessed), [preprocessed]);
-    const textOnly = useMemo(() => stripImages(preprocessed), [preprocessed]);
+    const { images: imageUrls, videos: videoUrls } = extractMediaUrls(preprocessed);
+    const textOnly = stripImages(preprocessed);
     return (
       <div className={`hm-message hm-message--user${isSteer ? ' hm-message--steer' : ''} hm-message--reveal`}>
         {isSteer && <span className="hm-message__steer-label">Steer message</span>}
@@ -250,24 +259,102 @@ function MessageBubbleView({ message, rpc, isLast, streaming, liveStatus, liveFa
     );
   }
 
+  // Single-message path used by unit tests; Chat uses AssistantTurn for grouped turns.
+  return (
+    <AssistantTurn
+      messages={[message]}
+      rpc={rpc}
+      isLast={isLast}
+      streaming={streaming}
+      liveStatus={liveStatus}
+      liveFace={liveFace}
+      pendingApprovals={pendingApprovals}
+      activeSessionIds={activeSessionIds}
+    />
+  );
+}
+
+export interface AssistantTurnProps {
+  messages: Message[];
+  rpc: RpcClient;
+  isLast?: boolean | undefined;
+  streaming?: boolean | undefined;
+  liveStatus?: string | undefined;
+  liveFace?: string | undefined;
+  pendingApprovals?: Approval[] | undefined;
+  activeSessionIds?: string[] | undefined;
+}
+
+/**
+ * One assistant turn: chronological thinking + tools, then ALL reply prose under them.
+ * Never interleave output text between tool/thinking blocks.
+ */
+export function AssistantTurn({
+  messages,
+  rpc,
+  isLast,
+  streaming,
+  liveStatus,
+  liveFace,
+  pendingApprovals,
+  activeSessionIds,
+}: AssistantTurnProps) {
   const active = Boolean(streaming && isLast !== false);
-  const showCaret = active && message.role === 'assistant';
-  // A completed plan belongs only to the current turn. Historical todo state
-  // must not keep resurfacing every time an older transcript is rendered.
-  const completedTodoTool = isLast !== false && !active
-    ? message.toolCalls?.filter((tool) => tool.name === 'todo' && typeof tool.output === 'string').at(-1)
-    : undefined;
-  const recoveredTool = recoveredApprovalTool(message, isLast, pendingApprovals, activeSessionIds);
-  const otherTools = [
-    ...(message.toolCalls?.filter((t) => t.name !== 'todo') ?? []),
-    ...(recoveredTool ? [recoveredTool] : []),
-  ];
-  const hasActions = Boolean(message.thinking?.trim()) || Boolean(completedTodoTool) || otherTools.length > 0;
+  const lastMessage = messages[messages.length - 1];
+  const thinkingParts = useMemo(() => collectThinkingParts(messages), [messages]);
+  const combinedText = useMemo(() => joinAssistantText(messages), [messages]);
+  const showCaret = active && Boolean(lastMessage);
+
+  const otherTools = useMemo(() => {
+    const tools: ToolCall[] = [];
+    const seen = new Set<string>();
+    for (const message of messages) {
+      for (const tool of message.toolCalls ?? []) {
+        if (tool.name === 'todo') continue;
+        const key = tool.id || `${tool.name}:${JSON.stringify(tool.input ?? {})}`;
+        if (seen.has(key)) continue;
+        seen.add(key);
+        tools.push(tool);
+      }
+    }
+    const recovered = lastMessage
+      ? recoveredApprovalTool(lastMessage, isLast, pendingApprovals, activeSessionIds)
+      : undefined;
+    if (recovered && !seen.has(recovered.id)) tools.push(recovered);
+    return tools;
+  }, [messages, lastMessage, isLast, pendingApprovals, activeSessionIds]);
+
+  const completedTodoTool = useMemo(() => {
+    if (active || isLast === false) return undefined;
+    for (let i = messages.length - 1; i >= 0; i -= 1) {
+      const todo = messages[i]?.toolCalls?.filter((tool) => tool.name === 'todo' && typeof tool.output === 'string').at(-1);
+      if (todo) return todo;
+    }
+    return undefined;
+  }, [messages, active, isLast]);
+
+  const preprocessed = preprocessMediaRefs(combinedText);
+  const { images: imageUrls, videos: videoUrls } = extractMediaUrls(preprocessed);
+  const textOnly = stripImages(preprocessed);
+  const hasText = Boolean(textOnly || imageUrls.length > 0 || videoUrls.length > 0);
+
+  const hasRunningTools = active && otherTools.some((tool) => tool.output === undefined);
+  // Live thinking stays OUTSIDE the collapsible group. Once tools/text start
+  // (or the turn ends), every thought folds into ThinkingGroup like tools.
+  const thinkingIsLive = active && !hasRunningTools && !hasText && thinkingParts.length > 0;
+  const liveThinking = thinkingIsLive ? thinkingParts[thinkingParts.length - 1] : undefined;
+  const groupedThinking = thinkingIsLive ? thinkingParts.slice(0, -1) : thinkingParts;
+
+  const hasActions =
+    groupedThinking.length > 0 ||
+    Boolean(liveThinking?.trim()) ||
+    Boolean(completedTodoTool) ||
+    otherTools.length > 0;
   const showLiveStatus = active && Boolean(liveStatus?.trim());
   const statusFace = liveFace?.trim();
 
   return (
-    <div className="hm-message hm-message--assistant hm-message--reveal">
+    <div className="hm-message hm-message--assistant hm-message--reveal hm-assistant-turn">
       {showLiveStatus && (
         <span className="hm-message__status" role="status" aria-live="polite">
           {statusFace ? <span className="hm-message__status-face" aria-hidden="true">{statusFace}</span> : null}
@@ -280,7 +367,7 @@ function MessageBubbleView({ message, rpc, isLast, streaming, liveStatus, liveFa
         </span>
       )}
 
-      {!showLiveStatus && active && !message.text && !hasActions && (
+      {!showLiveStatus && active && !hasText && !hasActions && (
         <span className="hm-message__activity-dots hm-message__activity-dots--standalone" aria-label="Assistant is active">
           <span />
           <span />
@@ -288,21 +375,14 @@ function MessageBubbleView({ message, rpc, isLast, streaming, liveStatus, liveFa
         </span>
       )}
 
+      {/* Activity trail: settled thinking group → live thinking → tools. Prose below. */}
       {hasActions && (
         <div className="hm-message__actions">
-          {(message.thinkingParts && message.thinkingParts.length > 0
-            ? message.thinkingParts
-            : message.thinking?.trim()
-              ? [message.thinking]
-              : []
-          ).map((part, idx, arr) => (
-            <ThinkingDisclosure
-              key={`think-${message.id}-${idx}`}
-              text={part}
-              streaming={active && idx === arr.length - 1}
-              label={arr.length > 1 ? `Thinking ${idx + 1}` : 'Thinking'}
-            />
-          ))}
+          {groupedThinking.length > 0 && (
+            <ThinkingGroup parts={groupedThinking} streaming={active} />
+          )}
+
+          {liveThinking ? <LiveThinking text={liveThinking} /> : null}
 
           {completedTodoTool && (
             <div className="hm-message__todos"><TodoPanel tool={completedTodoTool} /></div>
@@ -312,46 +392,45 @@ function MessageBubbleView({ message, rpc, isLast, streaming, liveStatus, liveFa
         </div>
       )}
 
-      {message.text ? (() => {
-        const preprocessed = preprocessMediaRefs(message.text);
-        const { images: imageUrls, videos: videoUrls } = extractMediaUrls(preprocessed);
-        const textOnly = stripImages(preprocessed);
-        return (
-          <div className="hm-message__text">
-            {textOnly && <ReactMarkdown remarkPlugins={MARKDOWN_REMARK_PLUGINS} components={MARKDOWN_COMPONENTS}>{textOnly}</ReactMarkdown>}
-            {videoUrls.length > 0 && (
-              <div className="hm-video-grid">
-                {videoUrls.map((url, i) => (
-                  <span key={i} className="hm-video-wrap">
-                    <MessageVideo src={url} />
+      {/* ALL reply prose under the activity trail — never between tools/thinking. */}
+      {hasText ? (
+        <div className="hm-message__text">
+          {textOnly && <ReactMarkdown remarkPlugins={MARKDOWN_REMARK_PLUGINS} components={MARKDOWN_COMPONENTS}>{textOnly}</ReactMarkdown>}
+          {videoUrls.length > 0 && (
+            <div className="hm-video-grid">
+              {videoUrls.map((url, i) => (
+                <span key={i} className="hm-video-wrap">
+                  <MessageVideo src={url} />
+                </span>
+              ))}
+            </div>
+          )}
+          {imageUrls.length > 0 && (
+            <ImageGalleryProvider>
+              <div className={`hm-image-grid${imageUrls.length === 1 ? ' hm-image-grid--single' : ''}`}>
+                {imageUrls.map((url, i) => (
+                  <span key={i} className="hm-md-img-wrap">
+                    <MessageImageInline src={url} alt="" />
                   </span>
                 ))}
               </div>
-            )}
-            {imageUrls.length > 0 && (
-              <ImageGalleryProvider>
-                <div className={`hm-image-grid${imageUrls.length === 1 ? ' hm-image-grid--single' : ''}`}>
-                  {imageUrls.map((url, i) => (
-                    <span key={i} className="hm-md-img-wrap">
-                      <MessageImageInline src={url} alt="" />
-                    </span>
-                  ))}
-                </div>
-              </ImageGalleryProvider>
-            )}
-            {showCaret && <span className="hm-message__caret" />}
-          </div>
-        );
-      })() : null}
+            </ImageGalleryProvider>
+          )}
+          {showCaret && <span className="hm-message__caret" />}
+        </div>
+      ) : showCaret ? (
+        <div className="hm-message__text">
+          <span className="hm-message__caret" />
+        </div>
+      ) : null}
 
       <MessageMetaBar
-        text={message.text}
-        createdAt={message.createdAt}
-        show={!active && Boolean(message.text.trim())}
+        text={combinedText}
+        createdAt={lastMessage?.createdAt}
+        show={!active && Boolean(combinedText.trim())}
       />
     </div>
   );
 }
-
 export const MessageBubble = memo(MessageBubbleView, areMessageBubblePropsEqual);
 MessageBubble.displayName = 'MessageBubble';
