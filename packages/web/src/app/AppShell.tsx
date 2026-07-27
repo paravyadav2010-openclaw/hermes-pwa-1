@@ -1,4 +1,5 @@
 import { Suspense, lazy, useCallback, useEffect, useMemo, useRef, useState } from 'react';
+import { flushSync } from 'react-dom';
 import type { Approval, Clarify, ConnectionState, RpcClient, RestClient, RpcEvent, Session, UpdateCheck } from '@hermes-pwa/core';
 import { connectionStateLabel, isPlaceholderSessionTitle, sessionProfileKey, sessionSourceId, sessionSourceLabel, useActivityStore, useProfilesStore, useSessionsStore, useChatStore, useConnectionStore, useProjectsStore } from '@hermes-pwa/core';
 import { Home } from '../screens/Home';
@@ -328,14 +329,18 @@ export function AppShell({ connectionState, rpc, rest, onRetry }: AppShellProps)
         finished = true;
         s.removeEventListener('transitionend', onEnd);
         clearTimeout(fallbackTimer);
-        setScreen(target);
-        persistScreen(target);
-        requestAnimationFrame(() => {
+        // Keep the destination in exactly one frame before resetting the
+        // track. Splitting this across rAFs briefly renders it twice and
+        // produces a visible flash on mobile GPUs.
+        flushSync(() => {
           nextScreenRef.current = null;
+          setScreen(target);
           setNextScreen(null);
-          if (s) { s.style.transition = 'none'; s.style.transform = ''; }
-          isAnimatingRef.current = false;
         });
+        persistScreen(target);
+        s.style.transition = 'none';
+        s.style.transform = '';
+        isAnimatingRef.current = false;
       };
 
       const onEnd = () => {
