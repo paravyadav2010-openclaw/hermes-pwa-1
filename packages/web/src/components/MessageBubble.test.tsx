@@ -74,10 +74,11 @@ describe('MessageBubble', () => {
       />,
     );
 
-    expect(container.querySelector('.hm-thinking--live')).toHaveTextContent('live thought');
-    expect(container.querySelector('.hm-thinking-group')).toHaveClass('hm-thinking-group--collapsed');
-    expect(container.querySelector('[data-hm-tool-standalone="1"]')).toHaveTextContent(/Running command|npm test/i);
-    expect(container.querySelector('.hm-tool-group')).toHaveClass('hm-tool-group--collapsed');
+    const children = Array.from(container.querySelector('.hm-message__actions')!.children);
+    expect(children[0]).toHaveClass('hm-thinking--live');
+    expect(children[1]).toHaveAttribute('data-hm-tool-standalone', '1');
+    expect(children[2]).toHaveClass('hm-thinking-group--collapsed');
+    expect(children[3]).toHaveClass('hm-tool-group--collapsed');
   });
 
   it('keeps combined assistant prose under thinking and tools for a multi-row turn', () => {

@@ -384,22 +384,21 @@ export function AssistantTurn({
       {/* Activity trail: settled thinking group → live thinking → tools. Prose below. */}
       {hasActions && (
         <div className="hm-message__actions">
+          {/* Active items lead the trail, always outside their collapsed history. */}
+          {liveThinking ? <LiveThinking text={liveThinking} /> : null}
+          {pendingTool && (
+            <ToolRow tool={pendingTool} rpc={rpc} streaming={active} standalone />
+          )}
+
+          {/* Settled history follows, folded by default. */}
           {groupedThinking.length > 0 && (
             <ThinkingGroup parts={groupedThinking} />
           )}
-
-          {liveThinking ? <LiveThinking text={liveThinking} /> : null}
-
           {completedTodoTool && (
             <div className="hm-message__todos"><TodoPanel tool={completedTodoTool} /></div>
           )}
-
-          {/* Completed tools collapsed; only the active pending tool is outside. */}
           {completedTools.length > 0 && (
             <ToolGroup tools={completedTools} rpc={rpc} />
-          )}
-          {pendingTool && (
-            <ToolRow tool={pendingTool} rpc={rpc} streaming={active} standalone />
           )}
         </div>
       )}
