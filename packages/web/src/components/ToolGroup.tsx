@@ -18,12 +18,23 @@ interface ToolRowProps {
 }
 
 function ToolRow({ tool, rpc, streaming, onOpenChange }: ToolRowProps) {
-  const [expanded, setExpanded] = useState(false);
   const view = useMemo(() => buildToolView(tool), [tool]);
   const isPendingTool = view.status === 'running';
-  const isRunning = isPendingTool && streaming;
+  const isRunning = isPendingTool && Boolean(streaming);
   const hasDetail = Boolean(view.detail && view.detail.trim() && view.detail.trim() !== view.title.trim());
+  // Active/pending tools start expanded when they have detail; settled rows stay collapsed.
+  const [expanded, setExpanded] = useState(Boolean(isPendingTool && hasDetail));
   const open = expanded && hasDetail;
+
+  useEffect(() => {
+    // Keep active tools open when they produce detail; don't force-close settled rows
+    // (user can still expand them one-by-one inside the group).
+    if (isPendingTool && hasDetail) {
+      setExpanded(true);
+      onOpenChange?.(tool.id, true);
+    }
+  }, [isPendingTool, hasDetail, tool.id, onOpenChange]);
+
   const toggle = () => {
     if (!hasDetail) return;
     const next = !open;

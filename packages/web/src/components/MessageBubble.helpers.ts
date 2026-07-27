@@ -15,6 +15,7 @@ import {
   type TdHTMLAttributes,
   type ThHTMLAttributes,
 } from 'react';
+import { createPortal } from 'react-dom';
 import type { Approval, Message, RpcClient } from '@hermes-pwa/core';
 
 export interface MessageBubbleProps {
@@ -87,13 +88,23 @@ export function ImageGalleryProvider({ children }: { children: ReactNode }) {
 
   const ctx = useMemo<ImageGalleryCtx>(() => ({ register, unregister, openAt }), [register, unregister, openAt]);
 
-  return createElement(ImageGalleryContext.Provider, { value: ctx },
+  // Portal to body so fixed positioning is true viewport fullscreen — never
+  // trapped by chat/screen transforms (swipe stack, etc.).
+  const lightboxNode = lightbox
+    ? createElement(Lightbox, {
+        images: lightbox.images,
+        startIndex: lightbox.index,
+        onClose: () => setLightbox(null),
+      })
+    : null;
+
+  return createElement(
+    ImageGalleryContext.Provider,
+    { value: ctx },
     children,
-    lightbox && createElement(Lightbox, {
-      images: lightbox.images,
-      startIndex: lightbox.index,
-      onClose: () => setLightbox(null),
-    }),
+    typeof document !== 'undefined' && lightboxNode
+      ? createPortal(lightboxNode, document.body)
+      : null,
   );
 }
 

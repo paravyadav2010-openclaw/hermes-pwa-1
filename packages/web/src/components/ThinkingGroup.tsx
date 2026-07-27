@@ -89,8 +89,7 @@ export function ThinkingGroup({ parts, streaming }: ThinkingGroupProps) {
 
 /**
  * Live thinking stream — sits OUTSIDE the collapsible group while active.
- * Always open while streaming; disappears from this slot once the turn settles
- * (content moves into ThinkingGroup).
+ * Always expanded while streaming; folds into ThinkingGroup when settled.
  */
 export function LiveThinking({ text }: { text: string }) {
   const cleaned = text.trim();
@@ -102,7 +101,7 @@ export function LiveThinking({ text }: { text: string }) {
         <span className="hm-thinking__title hm-thinking__title--streaming">Thinking</span>
         <span className="hm-thinking__spinner" aria-label="thinking" />
       </div>
-      <div className="hm-thinking__body">
+      <div className="hm-thinking__body hm-thinking__body--live">
         <ReactMarkdown remarkPlugins={[remarkGfm]} components={MARKDOWN_COMPONENTS}>{cleaned}</ReactMarkdown>
       </div>
     </div>
