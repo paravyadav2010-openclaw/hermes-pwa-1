@@ -57,20 +57,12 @@ function ThinkingPartRow({
 }
 
 /**
- * Finished thinking, folded like tools:
- * - header + chevron
- * - collapsed by default after the turn
- * - while the turn is still streaming, group stays expanded
- * - expand individual thoughts one-by-one (last open while streaming)
+ * Finished thinking — always collapsed, inside a group.
+ * Settled thoughts never open on their own; the user expands them.
  */
-export function ThinkingGroup({ parts, streaming }: ThinkingGroupProps) {
+export function ThinkingGroup({ parts, streaming: _streaming }: ThinkingGroupProps) {
   const cleaned = parts.map((p) => p.trim()).filter(Boolean);
-  const [groupOpen, setGroupOpen] = useState(Boolean(streaming));
-
-  // Active turn → expanded; settled → collapse
-  useEffect(() => {
-    setGroupOpen(Boolean(streaming));
-  }, [streaming]);
+  const [groupOpen, setGroupOpen] = useState(false);
 
   if (cleaned.length === 0) return null;
 
@@ -98,7 +90,6 @@ export function ThinkingGroup({ parts, streaming }: ThinkingGroupProps) {
               text={part}
               index={idx}
               total={cleaned.length}
-              defaultOpen={Boolean(streaming) && idx === cleaned.length - 1}
             />
           ))}
         </div>

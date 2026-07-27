@@ -2,7 +2,7 @@ import ReactMarkdown from 'react-markdown';
 import remarkGfm from 'remark-gfm';
 import { memo, useCallback, useEffect, useMemo, useState } from 'react';
 import type { Approval, Message, RpcClient, ToolCall } from '@hermes-pwa/core';
-import { ToolGroup } from './ToolGroup';
+import { ToolGroup, ToolRow } from './ToolGroup';
 import { TodoPanel } from './TodoPanel';
 import { ThinkingGroup, LiveThinking } from './ThinkingGroup';
 import { Icon } from './Icon';
@@ -338,6 +338,10 @@ export function AssistantTurn({
   const textOnly = stripImages(preprocessed);
   const hasText = Boolean(textOnly || imageUrls.length > 0 || videoUrls.length > 0);
 
+  // Split tools: pending (no output) outside expanded, completed inside collapsed group
+  const pendingTool = otherTools.find((t) => t.output === undefined);
+  const completedTools = otherTools.filter((t) => t.output !== undefined);
+
   // Live thinking stays OUTSIDE the collapsible group and always expanded while
   // the turn is active and no final reply text yet (tools may still be running).
   const thinkingIsLive = active && !hasText && thinkingParts.length > 0;
@@ -387,7 +391,18 @@ export function AssistantTurn({
             <div className="hm-message__todos"><TodoPanel tool={completedTodoTool} /></div>
           )}
 
-          {otherTools.length > 0 && <ToolGroup tools={otherTools} rpc={rpc} streaming={active} />}
+          {otherTools.length > 0 && (
+            <>
+              {/* Pending tool call outside the group, expanded */}
+              {pendingTool && (
+                <ToolRow tool={pendingTool} rpc={rpc} streaming={active} standalone />
+              )}
+              {/* Completed tools in collapsed group */}
+              {completedTools.length > 0 && (
+                <ToolGroup tools={completedTools} rpc={rpc} streaming={false} />
+              )}
+            </>
+          )}
         </div>
       )}
 

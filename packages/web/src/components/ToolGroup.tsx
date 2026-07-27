@@ -16,9 +16,11 @@ interface ToolRowProps {
   rpc: RpcClient;
   streaming?: boolean | undefined;
   onOpenChange?: (toolId: string, open: boolean) => void;
+  /** When true, group chrome (header/chevron) is hidden — solo row. */
+  standalone?: boolean;
 }
 
-function ToolRow({ tool, rpc, streaming, onOpenChange }: ToolRowProps) {
+export function ToolRow({ tool, rpc, streaming, onOpenChange, standalone }: ToolRowProps) {
   const view = useMemo(() => buildToolView(tool), [tool]);
   const isPendingTool = view.status === 'running';
   const isRunning = isPendingTool && Boolean(streaming);
@@ -102,37 +104,20 @@ function ToolRow({ tool, rpc, streaming, onOpenChange }: ToolRowProps) {
   );
 }
 
-function groupSummary(tools: ToolCall[], streaming?: boolean): string {
+function groupSummary(tools: ToolCall[], _streaming?: boolean): string {
   const count = tools.length;
   if (count === 0) return 'Tools';
-  if (streaming) {
-    const running = tools.filter((t) => t.output === undefined).length;
-    if (running > 0) return running === 1 ? 'Running 1 tool' : `Running ${running} tools`;
-    return count === 1 ? '1 tool' : `${count} tools`;
-  }
   return count === 1 ? '1 tool' : `${count} tools`;
 }
 
-export function ToolGroup({ tools, rpc, streaming }: ToolGroupProps) {
+export function ToolGroup({ tools, rpc, streaming: _streaming }: ToolGroupProps) {
   const hasPending = tools.some((t) => t.output === undefined);
-  const forceOpen = Boolean(streaming || hasPending);
-  const [groupOpen, setGroupOpen] = useState(forceOpen);
+  const [groupOpen, setGroupOpen] = useState(false);
   const [expandedToolId, setExpandedToolId] = useState<string | undefined>();
-
-  // Open while the turn streams or any tool still needs attention (e.g. approval).
-  // Collapse only when everything is settled.
-  useEffect(() => {
-    if (forceOpen) {
-      setGroupOpen(true);
-      return;
-    }
-    setGroupOpen(false);
-  }, [forceOpen]);
 
   if (tools.length === 0) return null;
 
-  const summary = groupSummary(tools, streaming || hasPending);
-  const hasRunning = Boolean((streaming || hasPending) && hasPending);
+  const summary = groupSummary(tools);
   const bodyOpen = groupOpen;
   const bounded = tools.length >= 3 && bodyOpen && !expandedToolId;
 
@@ -152,10 +137,9 @@ export function ToolGroup({ tools, rpc, streaming }: ToolGroupProps) {
         onClick={() => setGroupOpen((v) => !v)}
         aria-expanded={bodyOpen}
       >
-        <span className={`hm-tool-group__header-title${hasRunning ? ' hm-tool-group__header-title--live' : ''}`}>
+        <span className="hm-tool-group__header-title">
           {summary}
         </span>
-        {hasRunning && <span className="hm-tool-group__header-running" aria-label="running" />}
         <span className={`hm-tool-group__chevron${bodyOpen ? ' hm-tool-group__chevron--open' : ''}`} aria-hidden="true">
           <Icon name="chevR" size={12} />
         </span>
@@ -168,7 +152,7 @@ export function ToolGroup({ tools, rpc, streaming }: ToolGroupProps) {
               key={tool.id}
               tool={tool}
               rpc={rpc}
-              streaming={streaming}
+              streaming={false}
               onOpenChange={(toolId, open) => setExpandedToolId(open ? toolId : undefined)}
             />
           ))}

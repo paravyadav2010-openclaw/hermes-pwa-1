@@ -28,11 +28,12 @@ describe('ThinkingGroup', () => {
     expect(screen.queryByRole('button', { name: /thoughts/i })).not.toBeInTheDocument();
   });
 
-  it('keeps the thinking group expanded while streaming', () => {
-    render(<ThinkingGroup parts={['active plan']} streaming />);
+  it('always stays collapsed regardless of streaming', () => {
+    const { container } = render(<ThinkingGroup parts={['active plan']} streaming />);
     const header = screen.getByRole('button', { name: /Thinking/i });
-    expect(header).toHaveAttribute('aria-expanded', 'true');
-    expect(screen.getByText('active plan')).toBeInTheDocument();
+    expect(header).toHaveAttribute('aria-expanded', 'false');
+    expect(screen.queryByText('active plan')).not.toBeInTheDocument();
+    expect(container.querySelector('.hm-thinking-group--collapsed')).toBeTruthy();
   });
 });
 
