@@ -373,10 +373,11 @@ function Lightbox({
     };
   }, []);
 
-  // Shared-element OPEN: thumb → fullscreen
+  // Shared-element OPEN: thumb → fullscreen, then hand off to track only
   useEffect(() => {
     if (phase !== 'opening' || !origin) return;
     let cancelled = false;
+    let handoffTimer: number | null = null;
     const id = requestAnimationFrame(() => {
       requestAnimationFrame(() => {
         if (cancelled) return;
@@ -386,24 +387,33 @@ function Lightbox({
           radius: '0px',
           fit: 'contain',
         });
+        // Pre-mount track under the hero so handoff has no blank frame
+        setShowTrack(true);
         setChromeOn(true);
       });
     });
     const done = window.setTimeout(() => {
       if (cancelled) return;
+      // Drop hero FIRST in the same turn as phase=open so swipe only moves the track
+      setHero(null);
       setPhase('open');
       setShowTrack(true);
-      // Keep hero one frame then drop — track takes over
-      window.setTimeout(() => {
-        if (!cancelled) setHero(null);
-      }, 40);
     }, OPEN_MS + 20);
     return () => {
       cancelled = true;
       cancelAnimationFrame(id);
       window.clearTimeout(done);
+      if (handoffTimer != null) window.clearTimeout(handoffTimer);
     };
   }, [phase, origin]);
+
+  // Hard guarantee: never keep a hero layer while browsing/swiping
+  useEffect(() => {
+    if (phase === 'open' || phase === 'dragging' || phase === 'settling') {
+      setHero((h) => (h ? null : h));
+      setShowTrack(true);
+    }
+  }, [phase]);
 
   const finishClose = useCallback(() => {
     if (closedRef.current) return;
@@ -635,6 +645,8 @@ function Lightbox({
       : 0;
 
   const img = images[index];
+  // Hero is ONLY for shared-element open/close — never while swiping the gallery
+  const heroActive = Boolean(hero) && (phase === 'opening' || phase === 'dismissing');
 
   return createElement('div', {
     ref: containerRef,
@@ -654,9 +666,9 @@ function Lightbox({
       }
     },
   },
-    // Shared-element hero (open from grid / close back to grid)
-    hero && img && createElement('img', {
-      src: img.resolvedSrc,
+    // Shared-element hero (open from grid / close back to grid) — hidden during swipe
+    heroActive && hero && img && createElement('img', {
+      src: phase === 'dismissing' ? img.resolvedSrc : (images[startIndex]?.resolvedSrc ?? img.resolvedSrc),
       alt: img.alt,
       className: 'hm-md-img-lightbox__hero',
       draggable: false,
@@ -688,7 +700,7 @@ function Lightbox({
         transition: `opacity 200ms ${EASE_OUT}`,
         pointerEvents: phase === 'dismissing' || phase === 'opening' ? 'none' : undefined,
       },
-      onClick: (e: React.MouseEvent) => { e.stopPropagation(); if (phase === 'open' || phase === 'settling') prev(); },
+      onClick: (e: React.MouseEvent) => { e.stopPropagation(); if (phase === 'open' || phase === 'settling' || phase === 'dragging') prev(); },
       'aria-label': 'Previous image',
     },
       createElement('svg', { width: 24, height: 24, viewBox: '0 0 24 24', fill: 'none', stroke: 'currentColor', strokeWidth: 2, strokeLinecap: 'round', strokeLinejoin: 'round' },
@@ -696,15 +708,17 @@ function Lightbox({
       ),
     ),
 
-    // Gallery track (after open morph)
+    // Gallery track — sole image surface while open / dragging / settling
     showTrack && createElement('div', {
       className: 'hm-md-img-lightbox__track',
       style: {
         transform: `translate3d(${(-index * widthPx) + dragX}px, ${dragY}px, 0) scale(${1 - Math.min(0.06, Math.abs(dragY) / Math.max(vp.height, 1) * 0.12)})`,
         transition: trackTransition,
         width: widthPx > 0 ? `${images.length * widthPx}px` : undefined,
-        opacity: phase === 'dismissing' ? 0 : 1,
-        visibility: hero && (phase === 'opening' || phase === 'dismissing') ? 'hidden' : 'visible',
+        opacity: phase === 'dismissing' ? 0 : (phase === 'opening' ? 0 : 1),
+        // Hide under hero only during morph phases
+        visibility: heroActive ? 'hidden' : 'visible',
+        pointerEvents: heroActive || phase === 'dismissing' ? 'none' : 'auto',
       },
     },
       ...images.map((gImg) =>
@@ -732,7 +746,7 @@ function Lightbox({
         transition: `opacity 200ms ${EASE_OUT}`,
         pointerEvents: phase === 'dismissing' || phase === 'opening' ? 'none' : undefined,
       },
-      onClick: (e: React.MouseEvent) => { e.stopPropagation(); if (phase === 'open' || phase === 'settling') next(); },
+      onClick: (e: React.MouseEvent) => { e.stopPropagation(); if (phase === 'open' || phase === 'settling' || phase === 'dragging') next(); },
       'aria-label': 'Next image',
     },
       createElement('svg', { width: 24, height: 24, viewBox: '0 0 24 24', fill: 'none', stroke: 'currentColor', strokeWidth: 2, strokeLinecap: 'round', strokeLinejoin: 'round' },
