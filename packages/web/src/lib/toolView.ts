@@ -167,6 +167,55 @@ function basename(path: string): string {
   return parts[parts.length - 1] || path;
 }
 
+/** Gateway `context` is already a full label from build_tool_label ("Running echo", "Reading x.js"). */
+const GATEWAY_LABEL_VERB =
+  /^(Running(?:\s+code|\s+process|\s+command)?|Ran(?:\s+code|\s+command)?|Process finished|Reading|Read|Searching|Searched|Opening|Opened|Listing|Listed|Editing|Edited|Patching|Patched|Updating|Updated)\s+/i;
+
+function stripGatewayLabelVerb(label: string): string {
+  const cleaned = label.trim();
+  if (!cleaned) return '';
+  // "Searching files for foo" → "foo"
+  const filesFor = cleaned.match(/^Searching files for\s+(.+)$/i);
+  if (filesFor?.[1]) return filesFor[1].trim();
+  return cleaned.replace(GATEWAY_LABEL_VERB, '').trim();
+}
+
+function hasGatewayLabelVerb(label: string): boolean {
+  return GATEWAY_LABEL_VERB.test(label.trim());
+}
+
+/** Prefer raw tool args; fall back to gateway context with the leading verb stripped. */
+function rawTarget(args: Record<string, unknown>, result: Record<string, unknown>, keys: readonly string[]): string {
+  const direct = firstStringField(args, keys) || firstStringField(result, keys);
+  if (direct) return direct;
+  const ctx = contextValue(args) || contextValue(result);
+  return stripGatewayLabelVerb(ctx);
+}
+
+/**
+ * If gateway already shipped a complete label via context, reuse it and only
+ * flip tense when the tool finished (Running→Ran, Reading→Read, …).
+ */
+function titleFromGatewayContext(tool: ToolCall, args: Record<string, unknown>): string | undefined {
+  const ctx = (contextValue(args) || firstStringField(args, ['context', 'preview', 'args_text'])).trim();
+  if (!ctx || !hasGatewayLabelVerb(ctx)) return undefined;
+  if (tool.output === undefined) return compactPreview(ctx, 140);
+  return compactPreview(
+    ctx
+      .replace(/^Running code\b/i, 'Ran code')
+      .replace(/^Running process\b/i, 'Process finished')
+      .replace(/^Running(?:\s+command)?\b/i, 'Ran')
+      .replace(/^Reading\b/i, 'Read')
+      .replace(/^Searching\b/i, 'Searched')
+      .replace(/^Opening\b/i, 'Opened')
+      .replace(/^Listing\b/i, 'Listed')
+      .replace(/^Editing\b/i, 'Edited')
+      .replace(/^Patching\b/i, 'Patched')
+      .replace(/^Updating\b/i, 'Updated'),
+    140,
+  );
+}
+
 function toolStatus(tool: ToolCall, resultRecord: Record<string, unknown>): ToolStatus {
   if (tool.output === undefined) return 'running';
   if (resultRecord.error || resultRecord.status === 'error') return 'error';
@@ -184,20 +233,11 @@ function looksLikeJsonBlob(text: string): boolean {
   return (t.startsWith('{') && t.endsWith('}')) || (t.startsWith('[') && t.endsWith(']'));
 }
 
-function toolTarget(args: Record<string, unknown>, result: Record<string, unknown>, keys: readonly string[]): string {
-  return (
-    firstStringField(args, keys) ||
-    firstStringField(result, keys) ||
-    contextValue(args) ||
-    contextValue(result)
-  );
-}
-
 function toolSubtitle(tool: ToolCall, argsRecord: Record<string, unknown>, resultRecord: Record<string, unknown>): string {
   // Desktop keeps the collapsed row single-line. Subtitle is only used as a
   // tooltip / path hint for file edits — not a second visual line.
   if (tool.name === 'write_file' || tool.name === 'edit_file' || tool.name === 'patch' || tool.name === 'read_file') {
-    return toolTarget(argsRecord, resultRecord, ['path', 'file', 'filepath', 'context', 'args_text']);
+    return rawTarget(argsRecord, resultRecord, ['path', 'file', 'filepath']);
   }
   return '';
 }
@@ -206,6 +246,11 @@ function toolSubtitle(tool: ToolCall, argsRecord: Record<string, unknown>, resul
 function dynamicTitle(tool: ToolCall, args: Record<string, unknown>, result: Record<string, unknown>, fallback: string): string {
   const isPending = tool.output === undefined;
   const verb = (gerund: string, past: string) => (isPending ? gerund : past);
+
+  // Live gateway payloads usually only have `context` = build_tool_label(...).
+  // That string already includes the verb — never prefix another one.
+  const gatewayTitle = titleFromGatewayContext(tool, args);
+  if (gatewayTitle) return gatewayTitle;
 
   if (tool.name === 'web_extract') {
     const url = findFirstUrl(args, result);
@@ -218,14 +263,12 @@ function dynamicTitle(tool: ToolCall, args: Record<string, unknown>, result: Rec
   }
 
   if (tool.name === 'web_search') {
-    const query = firstStringField(args, ['search_term', 'query']) || contextValue(args);
+    const query = rawTarget(args, result, ['search_term', 'query']);
     return query ? `${verb('Searching', 'Searched')} “${compactPreview(query, 48)}”` : fallback;
   }
 
   if (tool.name === 'terminal' || tool.name === 'execute_code' || tool.name === 'process') {
-    const command =
-      firstStringField(args, ['context', 'preview', 'args_text', 'command', 'code', 'script', 'summary']) ||
-      contextValue(args);
+    const command = rawTarget(args, result, ['command', 'code', 'script']);
     if (tool.name === 'process') {
       return command
         ? `${verb('Running process', 'Process finished')} · ${compactPreview(command, 100)}`
@@ -239,9 +282,7 @@ function dynamicTitle(tool: ToolCall, args: Record<string, unknown>, result: Rec
   }
 
   if (tool.name === 'skill_view' || tool.name === 'skill_manage' || tool.name === 'skills_list') {
-    const skill =
-      firstStringField(args, ['skill', 'path', 'file_path', 'context', 'args_text', 'summary', 'name']) ||
-      contextValue(args);
+    const skill = rawTarget(args, result, ['skill', 'path', 'file_path', 'name']);
     if (skill && skill !== tool.name) {
       return `${verb('Opening', 'Opened')} ${compactPreview(skill, 100)}`;
     }
@@ -249,23 +290,23 @@ function dynamicTitle(tool: ToolCall, args: Record<string, unknown>, result: Rec
   }
 
   if (tool.name === 'read_file') {
-    const path = toolTarget(args, result, ['path', 'file', 'filepath', 'context', 'args_text']);
+    const path = rawTarget(args, result, ['path', 'file', 'filepath']);
     return path ? `${verb('Reading', 'Read')} ${compactPreview(path, 120)}` : fallback;
   }
 
   if (tool.name === 'write_file' || tool.name === 'edit_file' || tool.name === 'patch') {
-    const path = toolTarget(args, result, ['path', 'file', 'filepath', 'context', 'args_text']);
+    const path = rawTarget(args, result, ['path', 'file', 'filepath']);
     // Desktop uses basename as the primary title for file edits.
     return path ? basename(path) : fallback;
   }
 
   if (tool.name === 'list_files') {
-    const path = toolTarget(args, result, ['path', 'directory', 'dir', 'context', 'args_text']);
+    const path = rawTarget(args, result, ['path', 'directory', 'dir']);
     return path ? `${verb('Listing', 'Listed')} ${compactPreview(path, 120)}` : fallback;
   }
 
   if (tool.name === 'search_files') {
-    const query = firstStringField(args, ['query', 'search_term', 'term', 'pattern']) || contextValue(args);
+    const query = rawTarget(args, result, ['query', 'search_term', 'term', 'pattern']);
     return query ? `${verb('Searching', 'Searched')} “${compactPreview(query, 48)}”` : fallback;
   }
 

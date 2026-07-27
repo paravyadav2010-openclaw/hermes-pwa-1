@@ -23,6 +23,24 @@ describe('ToolGroup', () => {
     expect(container.querySelector('.hm-tool-group__row-detail')).not.toBeNull();
   });
 
+  it('uses gateway context labels without doubling the verb', () => {
+    render(
+      <ToolGroup
+        rpc={rpcMock}
+        tools={[
+          { id: 't1', name: 'terminal', input: { context: "Running echo hi" }, output: 'hi' },
+          { id: 't2', name: 'read_file', input: { context: 'Reading service-worker.js' }, output: 'ok' },
+          { id: 't3', name: 'search_files', input: { context: 'Searching files for reconnecting' }, output: '[]' },
+        ]}
+      />,
+    );
+    expect(screen.getByRole('button', { name: /^Ran echo hi$/i })).toBeInTheDocument();
+    expect(screen.getByRole('button', { name: /^Read service-worker\.js$/i })).toBeInTheDocument();
+    expect(screen.getByRole('button', { name: /^Searched files for reconnecting$/i })).toBeInTheDocument();
+    expect(screen.queryByText(/Ran · Running/i)).not.toBeInTheDocument();
+    expect(screen.queryByText(/Read Reading/i)).not.toBeInTheDocument();
+  });
+
   it('auto-opens while streaming with a running tool', () => {
     render(<ToolGroup rpc={rpcMock} tools={[{ id: 't1', name: 'search_files', input: { path: 'src' } }]} streaming />);
     expect(screen.getByText(/Searching/i)).toBeInTheDocument();
