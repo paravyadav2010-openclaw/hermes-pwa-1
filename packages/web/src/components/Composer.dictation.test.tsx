@@ -1,5 +1,5 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest';
-import { render, screen } from '@testing-library/react';
+import { fireEvent, render, screen } from '@testing-library/react';
 import { Composer } from './Composer';
 
 const mocks = vi.hoisted(() => ({
@@ -8,6 +8,7 @@ const mocks = vi.hoisted(() => ({
     status: 'idle' as 'idle' | 'recording' | 'transcribing',
     elapsedSeconds: 0,
     level: 0,
+    interimText: '',
   },
   voiceConversation: {
     active: false,
@@ -34,24 +35,29 @@ describe('Composer dictation status', () => {
     mocks.voiceRecorder.status = 'idle';
     mocks.voiceRecorder.elapsedSeconds = 0;
     mocks.voiceRecorder.level = 0;
+    mocks.voiceRecorder.interimText = '';
     mocks.voiceConversation.active = false;
     mocks.voiceConversation.status = 'idle';
   });
 
-  it('shows recording status while mic dictation is capturing audio', () => {
+  it('replaces the mic with an in-place wave control while recording', () => {
     mocks.voiceRecorder.status = 'recording';
-    mocks.voiceRecorder.elapsedSeconds = 3.4;
 
-    render(<Composer onSend={vi.fn()} onStop={vi.fn()} busy={false} />);
+    const { container } = render(<Composer onSend={vi.fn()} onStop={vi.fn()} busy={false} />);
 
-    expect(screen.getByRole('status')).toHaveTextContent('Recording 0:03 · tap mic to finish');
+    expect(screen.getByRole('button', { name: 'Stop dictation' })).toBeEnabled();
+    expect(container.querySelectorAll('.hm-composer__action--dictating .hm-composer__voice-level')).toHaveLength(5);
+    expect(screen.queryByRole('status')).not.toBeInTheDocument();
   });
 
-  it('shows transcribing status after mic dictation stops', () => {
+  it('keeps the wave control tappable to cancel speech dictation', () => {
     mocks.voiceRecorder.status = 'transcribing';
 
     render(<Composer onSend={vi.fn()} onStop={vi.fn()} busy={false} />);
 
-    expect(screen.getByRole('status')).toHaveTextContent('Transcribing voice…');
+    const stopButton = screen.getByRole('button', { name: 'Stop dictation' });
+    expect(stopButton).toBeEnabled();
+    fireEvent.click(stopButton);
+    expect(mocks.voiceRecorder.dictate).toHaveBeenCalledTimes(1);
   });
 });

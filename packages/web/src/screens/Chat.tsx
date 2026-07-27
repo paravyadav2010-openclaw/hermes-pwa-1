@@ -914,19 +914,18 @@ export function Chat({ rpc, rest, onNavigate }: ChatProps) {
           <ProfileModelBar
             profiles={profiles}
             activeName={activeName}
-            messages={messages}
+            currentName={currentName}
             rpc={rpc}
             sessionId={sessionId}
             modelLabel={modelLabel}
             providerLabel={activeProfile?.provider ?? ''}
             reasoningEffort={activeProfile?.reasoningEffort}
             rest={rest}
-            onModelChange={(provider, model) => {
+            onModelChange={async (provider, model) => {
               if (!activeName) return;
-              useProfilesStore
+              await useProfilesStore
                 .getState()
-                .setModel(rest, activeName, provider, model, activeProfile?.reasoningEffort, activeProfile?.showReasoning)
-                .catch(() => {});
+                .setModel(rest, activeName, provider, model, activeProfile?.reasoningEffort, activeProfile?.showReasoning);
             }}
             onEffortChange={async (effort) => {
               if (!activeName) return;

@@ -145,12 +145,6 @@ interface ComposerProps {
   onLayoutChange?: () => void;
 }
 
-function formatDuration(seconds: number): string {
-  const m = Math.floor(seconds / 60);
-  const s = Math.floor(seconds % 60);
-  return `${m}:${s.toString().padStart(2, '0')}`;
-}
-
 function makeId(): string {
   return `${Date.now()}-${Math.random().toString(36).slice(2, 8)}`;
 }
@@ -537,15 +531,27 @@ export function Composer({
 
         <button
           type="button"
-          className={`hm-composer__action ${isRecording ? 'hm-composer__action--recording' : ''}`}
+          className={`hm-composer__action ${isDictating ? 'hm-composer__action--dictating' : ''}`}
           onClick={voiceRecorder.dictate}
-          disabled={isVoiceBusy}
-          aria-label={isRecording ? 'Stop recording' : isDictating ? 'Transcribing…' : 'Dictate (uses keyboard mic on iOS)'}
+          disabled={isVoiceBusy && !isDictating}
+          aria-label={isDictating ? 'Stop dictation' : 'Dictate (uses keyboard mic on iOS)'}
         >
-          <Icon name="mic" size={19} />
-          {isRecording && (
-            <span className="hm-composer__timer">{formatDuration(voiceRecorder.elapsedSeconds)}</span>
-          )}
+          {isDictating ? (
+            <span className="hm-composer__voice-levels" aria-hidden="true">
+              {Array.from({ length: 5 }).map((_, i) => (
+                <span
+                  key={i}
+                  className="hm-composer__voice-level"
+                  style={{
+                    opacity: isRecording ? Math.min(1, voiceRecorder.level * 1.5 + i * 0.15) : 0.7,
+                    animation: voiceRecorder.status === 'transcribing'
+                      ? `hm-wave-pulse 0.6s ease-in-out ${i * 0.1}s infinite alternate`
+                      : undefined,
+                  }}
+                />
+              ))}
+            </span>
+          ) : <Icon name="mic" size={19} />}
         </button>
 
         <button
@@ -578,26 +584,6 @@ export function Composer({
           </button>
         )}
       </div>
-
-      {isDictating && (
-        <div className="hm-composer__voice-bar" role="status" aria-live="polite">
-          <div className="hm-composer__voice-levels">
-            {Array.from({ length: 5 }).map((_, i) => (
-              <span
-                key={i}
-                className="hm-composer__voice-level"
-                style={{
-                  opacity:
-                    voiceRecorder.status === 'recording'
-                      ? Math.min(1, voiceRecorder.level * 1.5 + i * 0.15)
-                      : 0.25,
-                  animation: voiceRecorder.status === 'transcribing' ? `hm-wave-pulse 0.6s ease-in-out ${i * 0.1}s infinite alternate` : undefined,
-                }}
-              />
-            ))}
-          </div>
-        </div>
-      )}
 
       {voiceModeEnabled && (
         <div className="hm-composer__voice-bar">

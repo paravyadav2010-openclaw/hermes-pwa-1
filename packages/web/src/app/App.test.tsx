@@ -125,6 +125,27 @@ describe('App Phase 3', () => {
     });
   });
 
+  it('forces a fresh websocket reconnect when the PWA returns to the foreground', () => {
+    vi.useFakeTimers();
+    vi.mocked(coreModule.useConnectionStore).mockReturnValue({
+      state: 'connected',
+      error: undefined,
+      init: mockInit,
+      login: mockLogin,
+      bindTransport: mockBindTransport,
+      setOnline: mockSetOnline,
+      setOffline: mockSetOffline,
+      wakeFromBackground: mockWakeFromBackground,
+    } as ReturnType<typeof coreModule.useConnectionStore>);
+    render(<App />);
+
+    window.dispatchEvent(new Event('pageshow'));
+    vi.advanceTimersByTime(100);
+
+    expect(mockWakeFromBackground).toHaveBeenCalledWith({ forceReconnect: true });
+    vi.useRealTimers();
+  });
+
   it('locks the native viewport and cancels horizontal touch pan', () => {
     render(<App />);
     expect(document.documentElement.classList.contains('hm-native-viewport-lock')).toBe(true);

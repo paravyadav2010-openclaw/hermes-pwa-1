@@ -17,6 +17,11 @@ export type ConnectionState =
   | 'incompatible-transport'
   | 'unsupported';
 
+export interface BackgroundWakeOptions {
+  /** A true app foreground transition; discard iOS's suspended socket. */
+  forceReconnect?: boolean;
+}
+
 export interface ConnectionStore {
   state: ConnectionState;
   status: GatewayStatus | undefined;
@@ -30,8 +35,8 @@ export interface ConnectionStore {
   logout(): Promise<void>;
   disconnect(): void;
   setOnline(): void;
-  /** Resume after iOS/PWA background freeze — reset reconnect budget + health-check/reconnect. */
-  wakeFromBackground(): void;
+  /** Resume after iOS/PWA background freeze. */
+  wakeFromBackground(options?: BackgroundWakeOptions): void;
   setOffline(): void;
 }
 
@@ -162,6 +167,7 @@ export const useConnectionStore = create<ConnectionStore>((set, get) => {
   let readyTimer: ReturnType<typeof setTimeout> | null = null;
   let connectedHealthInFlight = false;
   let readyHandler: RpcEventHandler | null = null;
+  let wsEpoch = 0;
 
   function assertRefs(): { rest: RestClient; ws: WsConnection; rpc: RpcClient } {
     if (!restRef || !wsRef || !rpcRef) {
@@ -201,12 +207,27 @@ export const useConnectionStore = create<ConnectionStore>((set, get) => {
   function forceReconnect(reason: string): void {
     clearReadyWatchdog();
     removeReadyListener();
+    wsEpoch += 1;
     if (rpcRef) rpcRef.disconnect();
     if (wsRef) wsRef.close();
     if (get().state !== 'offline' && get().state !== 'incompatible-transport' && get().state !== 'unsupported') {
       set({ state: 'reconnecting', error: reason });
       scheduleReconnect();
     }
+  }
+
+  function reconnectImmediately(reason: string): void {
+    clearReconnect();
+    clearReadyWatchdog();
+    removeReadyListener();
+    wsAttempt = 0;
+    // Safari may retain a "connected" socket object after backgrounding even
+    // when its network path is gone. Ignore callbacks from that old socket.
+    wsEpoch += 1;
+    if (rpcRef) rpcRef.disconnect();
+    if (wsRef) wsRef.close();
+    set({ state: 'ticketing', error: reason });
+    void connectWs();
   }
 
   function startReadyWatchdog(): void {
@@ -237,22 +258,27 @@ export const useConnectionStore = create<ConnectionStore>((set, get) => {
   async function connectWs(): Promise<void> {
     set({ state: 'ticketing', error: undefined });
     clearReconnect();
+    const epoch = ++wsEpoch;
 
     const { rest, ws, rpc } = assertRefs();
 
     try {
       const ticket = await rest.wsTicket();
+      if (epoch !== wsEpoch) return;
 
       ws.connect(
         ticket.ticket,
         () => {
+          if (epoch !== wsEpoch) return;
           wsAttempt = 0;
           startReadyWatchdog();
         },
         (line) => {
+          if (epoch !== wsEpoch) return;
           rpc.onFrame(line);
         },
         (event) => {
+          if (epoch !== wsEpoch) return;
           clearReadyWatchdog();
           rpc.disconnect();
           removeReadyListener();
@@ -274,6 +300,7 @@ export const useConnectionStore = create<ConnectionStore>((set, get) => {
       // Listen for gateway.ready event to confirm connection.
       removeReadyListener();
       readyHandler = () => {
+        if (epoch !== wsEpoch) return;
         clearReadyWatchdog();
         wsAttempt = 0;
         set({ state: 'connected', error: undefined });
@@ -281,6 +308,7 @@ export const useConnectionStore = create<ConnectionStore>((set, get) => {
       };
       rpc.events.addEventListener('gateway.ready', readyHandler);
     } catch (err) {
+      if (epoch !== wsEpoch) return;
       const diagnostics = explainConnectionError(err);
       if (diagnostics.advice === 'sign-in-again') {
         resetConnectionState();
@@ -401,6 +429,7 @@ export const useConnectionStore = create<ConnectionStore>((set, get) => {
 
     async logout() {
       resetConnectionState();
+      wsEpoch += 1;
       purgeLocalPrivateCache();
       try {
         const { rest, ws } = assertRefs();
@@ -416,6 +445,7 @@ export const useConnectionStore = create<ConnectionStore>((set, get) => {
 
     disconnect() {
       resetConnectionState();
+      wsEpoch += 1;
       if (wsRef) {
         wsRef.close();
       }
@@ -426,7 +456,7 @@ export const useConnectionStore = create<ConnectionStore>((set, get) => {
       get().wakeFromBackground();
     },
 
-    wakeFromBackground() {
+    wakeFromBackground(options = {}) {
       const current = get().state;
       if (
         current === 'login' ||
@@ -448,6 +478,10 @@ export const useConnectionStore = create<ConnectionStore>((set, get) => {
       }
 
       if (current === 'connected') {
+        if (options.forceReconnect) {
+          reconnectImmediately('Reconnecting after backgrounding…');
+          return;
+        }
         void checkConnectedRpcHealth();
       }
     },

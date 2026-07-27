@@ -515,6 +515,21 @@ describe('useConnectionStore', () => {
     expect(useConnectionStore.getState().state).toBe('connected');
   });
 
+  it('forces an immediate fresh websocket ticket after foreground resume', async () => {
+    vi.mocked(restMock.wsTicket).mockResolvedValue({ ticket: 't-foreground', ttlSeconds: 30 });
+    const store = useConnectionStore.getState();
+    store.bindTransport(restMock, wsMock, rpcMock);
+    useConnectionStore.setState({ state: 'connected', error: undefined });
+
+    store.wakeFromBackground({ forceReconnect: true });
+
+    await vi.waitFor(() => expect(wsMock.connect).toHaveBeenCalledTimes(1));
+    expect(restMock.wsTicket).toHaveBeenCalledTimes(1);
+    expect(rpcMock.disconnect).toHaveBeenCalledTimes(1);
+    expect(wsMock.close).toHaveBeenCalledTimes(1);
+    expect(rpcMock.request).not.toHaveBeenCalled();
+  });
+
   it('setOnline forces reconnect when a connected websocket no longer answers RPC', async () => {
     vi.useFakeTimers();
     vi.spyOn(Math, 'random').mockReturnValue(0);

@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useRef, useState } from 'react';
+import { useEffect, useRef, useState } from 'react';
 import type { ModelOptions, ReasoningEffort, RpcClient, RestClient } from '@hermes-pwa/core';
 import { useProfilesStore } from '@hermes-pwa/core';
 import { Icon } from '../components/Icon';
@@ -28,12 +28,11 @@ function fmtTokens(n: number): string {
   return `${(n / 1_000_000).toFixed(1)}M`;
 }
 
-function ContextRing({ used, limit, onClick }: { used: number; limit: number; onClick: () => void }) {
-  const pct = limit > 0 ? Math.min(100, Math.round((used / limit) * 100)) : 0;
+function ContextRing({ used, limit, onClick }: { used: number | null; limit: number | null; onClick: () => void }) {
+  const pct = used !== null && limit !== null && limit > 0 ? Math.min(100, Math.round((used / limit) * 100)) : null;
   const radius = 14;
   const circ = 2 * Math.PI * radius;
-  const fill = Math.max(0, circ * (1 - pct / 100));
-  const color = pct >= 90 ? '#dc4b46' : pct >= 70 ? '#c2790f' : '#2540ff';
+  const color = pct !== null && pct >= 90 ? '#dc4b46' : pct !== null && pct >= 70 ? '#c2790f' : '#2540ff';
 
   return (
     <button type="button" className="hm-context-ring" onClick={onClick} aria-label="Context usage">
@@ -41,13 +40,13 @@ function ContextRing({ used, limit, onClick }: { used: number; limit: number; on
       <svg width={34} height={34} viewBox="0 0 34 34">
         <circle cx={17} cy={17} r={radius} fill="none" stroke="var(--hm-color-border)" strokeWidth={3} />
         <circle cx={17} cy={17} r={radius} fill="none" stroke={color} strokeWidth={3}
-          strokeDasharray={circ} strokeDashoffset={Math.max(0, circ * (1 - pct / 100))}
+          strokeDasharray={circ} strokeDashoffset={pct === null ? circ : Math.max(0, circ * (1 - pct / 100))}
           strokeLinecap="round" transform="rotate(-90, 17, 17)"
           style={{ transition: 'stroke-dashoffset 0.3s, stroke 0.3s' }}
         />
       </svg>
       </span>
-      <span className="hm-context-ring__pct">{pct}</span>
+      <span className="hm-context-ring__pct">{pct ?? '—'}</span>
     </button>
   );
 }
@@ -60,8 +59,8 @@ type ModelSwitchState =
   | { kind: 'error'; detail: string };
 
 type LiveSessionStatus = {
-  used: number;
-  limit: number;
+  used: number | null;
+  limit: number | null;
   input: number;
   output: number;
   total: number;
@@ -70,65 +69,53 @@ type LiveSessionStatus = {
   model: string;
   provider: string;
   reasoningEffort: string;
+  profileName: string;
 };
 
 interface ProfileModelBarProps {
   profiles: { name: string; displayName?: string; model?: string; provider?: string }[];
   activeName: string | undefined;
-  messages: { text: string; thinking?: string; toolCalls?: { input?: string; output?: string }[] }[];
+  currentName: string | undefined;
   rpc: RpcClient | null;
   sessionId: string | undefined;
   rest: RestClient;
-  onModelChange: (provider: string, model: string) => void;
+  onModelChange: (provider: string, model: string) => void | Promise<void>;
   onEffortChange?: (effort: ReasoningEffort) => void | Promise<void>;
-  reasoningEffort?: ReasoningEffort;
+  reasoningEffort?: ReasoningEffort | undefined;
   modelLabel: string;
   providerLabel: string;
 
 }
 
-// Rough token estimate from message text
-function estimateTokens(messages: { text: string; thinking?: string; toolCalls?: { input?: string; output?: string }[] }[]): number {
-  const charsPerToken = 3; // realistic for mixed text + code
-  const msgOverhead = 100; // JSON envelope + role + metadata
-  let total = 0;
-  for (const m of messages) {
-    let raw = m.text + (m.thinking ?? '');
-    // Include tool call input/output text
-    if (m.toolCalls) {
-      for (const tc of m.toolCalls) {
-        raw += (tc.input ?? '') + (tc.output ?? '');
-      }
-    }
-    total += Math.round(raw.length / charsPerToken);
-    total += msgOverhead;
-  }
-  return total;
-}
-
 export function ProfileModelBar({
-  profiles, activeName, messages, rpc, sessionId, rest, onModelChange,
+  profiles, activeName, currentName, rpc, sessionId, rest, onModelChange,
   onEffortChange, reasoningEffort, modelLabel, providerLabel,
 }: ProfileModelBarProps) {
   const [dropdown, setDropdown] = useState<Dropdown>(null);
   const [modelOptions, setModelOptions] = useState<ModelOptions | null>(null);
   const [selectedProvider, setSelectedProvider] = useState<string | null>(null);
-  const [forceTick, setForceTick] = useState(0);
   const [localEffort, setLocalEffort] = useState<ReasoningEffort | undefined>(reasoningEffort);
-  const active = profiles.find((p) => p.name === activeName);
-  const profileLabel = active?.displayName ?? activeName ?? 'default';
-  const summary = providerLabel ? `${providerLabel} · ${modelLabel}` : modelLabel;
   const barRef = useRef<HTMLDivElement>(null);
   const switchSequenceRef = useRef(0);
   const [contextLimit, setContextLimit] = useState(1_000_000);
   const [switchState, setSwitchState] = useState<ModelSwitchState>({ kind: 'idle' });
+  const [rpcContext, setRpcContext] = useState<LiveSessionStatus | null>(null);
 
   // Keep bar label in sync when profile/prop changes; selection updates local first.
   useEffect(() => {
     setLocalEffort(reasoningEffort);
   }, [reasoningEffort, activeName]);
 
-  const displayEffort = localEffort ?? reasoningEffort;
+  const liveEffort = REASONING_EFFORTS.includes(rpcContext?.reasoningEffort as ReasoningEffort)
+    ? rpcContext?.reasoningEffort as ReasoningEffort
+    : undefined;
+  const displayEffort = liveEffort ?? (sessionId && rpcContext ? undefined : localEffort ?? reasoningEffort);
+  const liveProfileName = rpcContext?.profileName || (sessionId ? currentName : activeName);
+  const liveProfile = profiles.find((p) => p.name === liveProfileName);
+  const profileLabel = liveProfile?.displayName ?? liveProfileName ?? 'default';
+  const displayModel = rpcContext?.model || modelLabel;
+  const displayProvider = rpcContext?.provider || providerLabel;
+  const summary = displayProvider ? `${displayProvider} · ${displayModel}` : displayModel;
 
   // Fetch the context limit once from the current profile's model info
   useEffect(() => {
@@ -162,14 +149,8 @@ export function ProfileModelBar({
     rest.modelOptions().then(setModelOptions).catch(() => setModelOptions({ providers: [] }));
   }, [dropdown, rest]);
 
-  // Live polling: recalculate every 3s so the display updates during streaming
-  useEffect(() => {
-    const interval = setInterval(() => setForceTick((t) => t + 1), 3000);
-    return () => clearInterval(interval);
-  }, []);
 
   // Try to get real context from session.status once when sessionId changes
-  const [rpcContext, setRpcContext] = useState<LiveSessionStatus | null>(null);
   useEffect(() => {
     if (!rpc || !sessionId) { setRpcContext(null); return; }
     const client: RpcClient = rpc;
@@ -187,10 +168,9 @@ export function ProfileModelBar({
         const rawLimit = typeof result.context_limit === 'number' ? result.context_limit
           : typeof result.contextLimit === 'number' ? result.contextLimit
           : undefined;
-        const ctxLimit = (typeof rawLimit === 'number' && rawLimit > 0) ? rawLimit : contextLimit;
-        if (typeof ctxTokens === 'number' && ctxTokens >= 0) {
-          setRpcContext({
-            used: ctxTokens,
+        const ctxLimit = (typeof rawLimit === 'number' && rawLimit > 0) ? rawLimit : null;
+        setRpcContext({
+            used: typeof ctxTokens === 'number' && ctxTokens > 0 ? ctxTokens : null,
             limit: ctxLimit,
             input: numberValue('input_tokens'),
             output: numberValue('output_tokens'),
@@ -200,8 +180,8 @@ export function ProfileModelBar({
             model: typeof result.model === 'string' ? result.model : modelLabel,
             provider: typeof result.provider === 'string' ? result.provider : providerLabel,
             reasoningEffort: typeof result.reasoning_effort === 'string' ? result.reasoning_effort : '',
+            profileName: typeof result.profile_name === 'string' ? result.profile_name : '',
           });
-        }
       } catch { /* silent */ }
     }
     void fetchCtx();
@@ -209,12 +189,10 @@ export function ProfileModelBar({
     return () => { cancelled = true; clearInterval(interval); };
   }, [rpc, sessionId, contextLimit]);
 
-  const estimated = useMemo(() => estimateTokens(messages), [messages, forceTick]);
-
-  const used = (rpcContext?.used ?? estimated) + (forceTick * 0);
-  const limit = rpcContext?.limit ?? contextLimit;
-  const pct = limit > 0 ? Math.min(100, Math.round((used / limit) * 100)) : 0;
-  const isReal = rpcContext !== null;
+  const used = rpcContext?.used ?? null;
+  const limit = rpcContext?.limit ?? (sessionId ? null : contextLimit);
+  const pct = used !== null && limit !== null && limit > 0 ? Math.min(100, Math.round((used / limit) * 100)) : null;
+  const isReal = rpcContext?.used !== null;
 
   async function switchProfile(name: string) {
     try {
@@ -237,7 +215,13 @@ export function ProfileModelBar({
 
   async function handleModelSelect(model: string) {
     const provider = selectedProvider ?? (providerLabel || 'default');
-    onModelChange(provider, model);
+    try {
+      await onModelChange(provider, model);
+    } catch (error) {
+      const detail = error instanceof Error && error.message ? error.message : 'The profile update was rejected.';
+      setSwitchState({ kind: 'error', detail: `Model unchanged: ${detail}` });
+      return;
+    }
     setDropdown(null);
     setSelectedProvider(null);
     if (!sessionId) {
@@ -267,8 +251,9 @@ export function ProfileModelBar({
     setSwitchState({ kind: 'pending', detail: `Setting reasoning effort to ${effortLabel(effort)}…` });
     try {
       await onEffortChange?.(effort);
-      setSwitchState({ kind: 'success', detail: `Current session reasoning: ${effortLabel(effort)}` });
+      setSwitchState({ kind: 'success', detail: `Applied. Confirming current session reasoning…` });
     } catch (error) {
+      setLocalEffort(liveEffort ?? reasoningEffort);
       const detail = error instanceof Error && error.message ? error.message : 'The gateway rejected the reasoning update.';
       setSwitchState({ kind: 'error', detail: `Reasoning unchanged: ${detail}` });
     }
@@ -379,25 +364,29 @@ export function ProfileModelBar({
       {dropdown === 'context' && (
         <div className="hm-context-popover hm-profile-dropdown--up">
           <div className="hm-context-popover__row">
+            <span className="hm-context-popover__label">Profile</span>
+            <span className="hm-context-popover__value">{profileLabel}</span>
+          </div>
+          <div className="hm-context-popover__row">
             <span className="hm-context-popover__label">Model</span>
-            <span className="hm-context-popover__value">{modelLabel}</span>
+            <span className="hm-context-popover__value">{displayModel}</span>
           </div>
           <div className="hm-context-popover__row">
             <span className="hm-context-popover__label">Provider</span>
-            <span className="hm-context-popover__value">{providerLabel || modelLabel.split(' ')[0] || '—'}</span>
+            <span className="hm-context-popover__value">{displayProvider || '—'}</span>
           </div>
           <div className="hm-context-popover__divider" />
           <div className="hm-context-popover__row">
             <span className="hm-context-popover__label">Used</span>
-            <span className="hm-context-popover__value">{fmtTokens(used)} tokens</span>
+            <span className="hm-context-popover__value">{used === null ? 'Unavailable' : `${fmtTokens(used)} tokens`}</span>
           </div>
           <div className="hm-context-popover__row">
             <span className="hm-context-popover__label">Limit</span>
-            <span className="hm-context-popover__value">{fmtTokens(limit)} tokens</span>
+            <span className="hm-context-popover__value">{limit === null ? 'Unavailable' : `${fmtTokens(limit)} tokens`}</span>
           </div>
           <div className="hm-context-popover__row">
             <span className="hm-context-popover__label">Usage</span>
-            <span className="hm-context-popover__value" style={{ color: pct >= 90 ? '#dc4b46' : pct >= 70 ? '#c2790f' : '#2540ff' }}>{pct}%</span>
+            <span className="hm-context-popover__value" style={{ color: pct !== null && pct >= 90 ? '#dc4b46' : pct !== null && pct >= 70 ? '#c2790f' : '#2540ff' }}>{pct === null ? 'Waiting for measured prompt' : `${pct}%`}</span>
           </div>
           {rpcContext && (
             <>
@@ -425,7 +414,7 @@ export function ProfileModelBar({
           {isReal ? (
             <div className="hm-context-popover__footnote">Live from gateway · every 2s</div>
           ) : (
-            <div className="hm-context-popover__footnote">Live: every 3s · estimated from message text</div>
+            <div className="hm-context-popover__footnote">Awaiting a measured gateway context value</div>
           )}
         </div>
       )}

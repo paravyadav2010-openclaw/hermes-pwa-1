@@ -2421,11 +2421,20 @@ a {
   background: var(--hm-color-surface-2);
 }
 
-.hm-composer__action--recording {
-  background: var(--hm-color-danger-bg);
-  color: var(--hm-color-danger);
-  border-color: var(--hm-color-danger);
-  animation: hm-pulse 1.2s ease-in-out infinite;
+.hm-composer__action--dictating {
+  background: var(--hm-color-accent-weak);
+  color: var(--hm-color-accent);
+  border-color: var(--hm-color-accent);
+}
+
+.hm-composer__action--dictating .hm-composer__voice-levels {
+  flex: 0;
+  gap: 2px;
+}
+
+.hm-composer__action--dictating .hm-composer__voice-level {
+  width: 3px;
+  height: 12px;
 }
 
 .hm-composer__action--active {
