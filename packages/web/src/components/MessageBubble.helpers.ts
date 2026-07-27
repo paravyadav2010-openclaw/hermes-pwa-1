@@ -239,33 +239,62 @@ function Lightbox({ images, startIndex, onClose }: { images: GalleryImage[]; sta
     };
   }, []);
 
-  // Keyboard nav
-  useEffect(() => {
-    function onKey(e: KeyboardEvent) {
-      if (e.key === 'Escape') onClose();
-      if (e.key === 'ArrowLeft') prev();
-      if (e.key === 'ArrowRight') next();
-    }
-    window.addEventListener('keydown', onKey);
-    return () => window.removeEventListener('keydown', onKey);
-  }, [onClose, prev, next]);
-
   // Horizontal = gallery; vertical up/down = dismiss (iOS Photos-style)
   const [dragX, setDragX] = useState(0);
   const [dragY, setDragY] = useState(0);
+  /** idle | dragging (finger down) | settling (spring back) | dismissing (exit anim) */
+  const [motion, setMotion] = useState<'idle' | 'dragging' | 'settling' | 'dismissing'>('idle');
   const dragStart = useRef<{ x: number; y: number; time: number } | null>(null);
   const axisLock = useRef<'x' | 'y' | null>(null);
-  const dismissingRef = useRef(false);
+  const closedRef = useRef(false);
+  const dismissTimerRef = useRef<number | null>(null);
+
+  const finishClose = useCallback(() => {
+    if (closedRef.current) return;
+    closedRef.current = true;
+    if (dismissTimerRef.current != null) {
+      window.clearTimeout(dismissTimerRef.current);
+      dismissTimerRef.current = null;
+    }
+    onClose();
+  }, [onClose]);
+
+  useEffect(() => () => {
+    if (dismissTimerRef.current != null) window.clearTimeout(dismissTimerRef.current);
+  }, []);
+
+  const beginDismiss = useCallback((fromY: number) => {
+    if (closedRef.current || motion === 'dismissing') return;
+    const h = Math.max(
+      viewportBox.height || 0,
+      typeof window !== 'undefined' ? window.innerHeight : 0,
+      480,
+    );
+    // Travel far enough that the image fully leaves + slight overshoot feels natural
+    const dir = fromY === 0 ? 1 : Math.sign(fromY) || 1;
+    const exitY = dir * (h * 0.92 + 48);
+    setMotion('dismissing');
+    // Double-rAF: paint current frame first so the CSS transition actually runs
+    requestAnimationFrame(() => {
+      requestAnimationFrame(() => {
+        setDragX(0);
+        setDragY(exitY);
+      });
+    });
+    // Fallback if transitionend is missed (JSDOM / iOS quirks)
+    dismissTimerRef.current = window.setTimeout(finishClose, 380);
+  }, [finishClose, motion, viewportBox.height]);
 
   function onTouchStart(e: React.TouchEvent) {
-    if (dismissingRef.current) return;
+    if (motion === 'dismissing' || closedRef.current) return;
     dragStart.current = { x: e.touches[0].clientX, y: e.touches[0].clientY, time: Date.now() };
     axisLock.current = null;
+    setMotion('dragging');
     setDragX(0);
     setDragY(0);
   }
   function onTouchMove(e: React.TouchEvent) {
-    if (!dragStart.current || dismissingRef.current) return;
+    if (!dragStart.current || motion === 'dismissing' || closedRef.current) return;
     const dx = e.touches[0].clientX - dragStart.current.x;
     const dy = e.touches[0].clientY - dragStart.current.y;
 
@@ -276,7 +305,15 @@ function Lightbox({ images, startIndex, onClose }: { images: GalleryImage[]; sta
     }
 
     if (axisLock.current === 'y') {
-      setDragY(dy);
+      // Soft rubber-band past ~45% of height so drag never feels stuck
+      const h = Math.max(viewportBox.height || window.innerHeight, 1);
+      const limit = h * 0.55;
+      let adjY = dy;
+      if (Math.abs(adjY) > limit) {
+        const excess = Math.abs(adjY) - limit;
+        adjY = Math.sign(adjY) * (limit + excess * 0.28);
+      }
+      setDragY(adjY);
       setDragX(0);
       return;
     }
@@ -288,7 +325,7 @@ function Lightbox({ images, startIndex, onClose }: { images: GalleryImage[]; sta
     setDragY(0);
   }
   function onTouchEnd(e: React.TouchEvent) {
-    if (!dragStart.current || dismissingRef.current) return;
+    if (!dragStart.current || motion === 'dismissing' || closedRef.current) return;
     const dx = e.changedTouches[0].clientX - dragStart.current.x;
     const dy = e.changedTouches[0].clientY - dragStart.current.y;
     const elapsed = Math.max(1, Date.now() - dragStart.current.time);
@@ -299,19 +336,26 @@ function Lightbox({ images, startIndex, onClose }: { images: GalleryImage[]; sta
     if (axis === 'y') {
       const velocityY = Math.abs(dy) / elapsed;
       // Swipe up or down closes
-      if (Math.abs(dy) > 80 || (velocityY > 0.45 && Math.abs(dy) > 28)) {
-        dismissingRef.current = true;
-        setDragY(dy < 0 ? -Math.max(viewportBox.height || window.innerHeight, 400) : Math.max(viewportBox.height || window.innerHeight, 400));
-        window.setTimeout(() => onClose(), 160);
+      if (Math.abs(dy) > 72 || (velocityY > 0.4 && Math.abs(dy) > 24)) {
+        beginDismiss(dy);
         return;
       }
+      // Spring back to center
+      setMotion('settling');
       setDragY(0);
       setDragX(0);
+      window.setTimeout(() => {
+        setMotion((m) => (m === 'settling' ? 'idle' : m));
+      }, 320);
       return;
     }
 
+    setMotion('settling');
     setDragX(0);
     setDragY(0);
+    window.setTimeout(() => {
+      setMotion((m) => (m === 'settling' ? 'idle' : m));
+    }, 320);
     const velocityX = Math.abs(dx) / elapsed;
     if ((Math.abs(dx) > 60 || velocityX > 0.3) && Math.abs(dx) > 20) {
       if (dx < 0) next();
@@ -320,21 +364,58 @@ function Lightbox({ images, startIndex, onClose }: { images: GalleryImage[]; sta
   }
 
   function onBackdropClick(e: React.MouseEvent) {
-    if (e.target === containerRef.current) onClose();
+    if (e.target !== containerRef.current) return;
+    if (motion === 'dismissing') return;
+    beginDismiss(0);
   }
+
+  function onCloseClick(e: React.MouseEvent) {
+    e.stopPropagation();
+    if (motion === 'dismissing') return;
+    beginDismiss(0);
+  }
+
+  // Escape / keyboard still uses smooth dismiss when possible
+  useEffect(() => {
+    function onKey(e: KeyboardEvent) {
+      if (e.key === 'Escape') {
+        e.preventDefault();
+        beginDismiss(0);
+        return;
+      }
+      if (motion === 'dismissing') return;
+      if (e.key === 'ArrowLeft') prev();
+      if (e.key === 'ArrowRight') next();
+    }
+    window.addEventListener('keydown', onKey);
+    return () => window.removeEventListener('keydown', onKey);
+  }, [beginDismiss, motion, prev, next]);
 
   if (!images[index]) return null;
 
   const widthPx = slideWidth || viewportBox.width || (typeof window !== 'undefined' ? window.innerWidth : 0);
   const heightPx = viewportBox.height || (typeof window !== 'undefined' ? window.innerHeight : 0);
-  const dismissProgress = heightPx > 0 ? Math.min(1, Math.abs(dragY) / (heightPx * 0.35)) : 0;
-  const bgAlpha = Math.max(0.35, 0.96 * (1 - dismissProgress * 0.75));
-  const dragging = dragX !== 0 || dragY !== 0;
+  const dismissProgress = heightPx > 0
+    ? Math.min(1, Math.abs(dragY) / (heightPx * (motion === 'dismissing' ? 0.85 : 0.38)))
+    : 0;
+  const bgAlpha = motion === 'dismissing'
+    ? Math.max(0, 0.96 * (1 - dismissProgress))
+    : Math.max(0.4, 0.96 * (1 - dismissProgress * 0.7));
+  const fingerDown = motion === 'dragging';
+  // Animate whenever not finger-dragging (settle + dismiss need transitions ON)
+  const animateMotion = motion !== 'dragging';
+  const easeOut = 'cubic-bezier(0.22, 1, 0.36, 1)';
+  const easeSettle = 'cubic-bezier(0.34, 1.2, 0.64, 1)';
+  const motionEase = motion === 'dismissing' ? easeOut : easeSettle;
+  const motionMs = motion === 'dismissing' ? 340 : 300;
 
   const boxStyle: React.CSSProperties = {
     ...LIGHTBOX_INLINE_STYLE,
     background: `rgba(0, 0, 0, ${bgAlpha})`,
-    transition: dragging || dismissingRef.current ? 'none' : 'background 0.2s ease',
+    opacity: motion === 'dismissing' ? Math.max(0, 1 - dismissProgress * 0.55) : 1,
+    transition: animateMotion
+      ? `background ${motionMs}ms ${motionEase}, opacity ${motionMs}ms ${motionEase}`
+      : 'none',
     ...(viewportBox.width > 0
       ? {
           top: viewportBox.top,
@@ -349,12 +430,17 @@ function Lightbox({ images, startIndex, onClose }: { images: GalleryImage[]; sta
       : null),
   };
 
-  const chromeOpacity = Math.max(0, 1 - dismissProgress * 1.4);
+  const chromeOpacity = motion === 'dismissing'
+    ? 0
+    : Math.max(0, 1 - dismissProgress * 1.35);
+  const scale = motion === 'dismissing'
+    ? Math.max(0.86, 1 - dismissProgress * 0.12)
+    : Math.max(0.92, 1 - dismissProgress * 0.07);
 
   // Render all images as a sliding strip
   return createElement('div', {
     ref: containerRef,
-    className: 'hm-md-img-lightbox',
+    className: `hm-md-img-lightbox${motion === 'dismissing' ? ' hm-md-img-lightbox--dismissing' : ''}`,
     role: 'dialog',
     'aria-modal': true,
     'aria-label': 'Image viewer',
@@ -363,11 +449,25 @@ function Lightbox({ images, startIndex, onClose }: { images: GalleryImage[]; sta
     onTouchStart,
     onTouchMove,
     onTouchEnd,
+    onTransitionEnd: (e: React.TransitionEvent) => {
+      if (motion !== 'dismissing') return;
+      if (e.target !== e.currentTarget && !(e.target as HTMLElement)?.classList?.contains('hm-md-img-lightbox__track')) {
+        return;
+      }
+      // Prefer track transform end
+      if ((e.target as HTMLElement)?.classList?.contains('hm-md-img-lightbox__track') || e.propertyName === 'transform' || e.propertyName === 'opacity') {
+        finishClose();
+      }
+    },
   },
     // Counter
     images.length > 1 && createElement('span', {
       className: 'hm-md-img-lightbox__counter',
-      style: { opacity: chromeOpacity },
+      style: {
+        opacity: chromeOpacity,
+        transition: animateMotion ? `opacity ${motionMs}ms ${motionEase}` : 'none',
+        pointerEvents: fingerDown || motion === 'dismissing' ? 'none' : undefined,
+      },
     },
       `${index + 1} / ${images.length}`,
     ),
@@ -375,22 +475,37 @@ function Lightbox({ images, startIndex, onClose }: { images: GalleryImage[]; sta
     index > 0 && createElement('button', {
       type: 'button',
       className: 'hm-md-img-lightbox__nav hm-md-img-lightbox__nav--prev',
-      style: { opacity: chromeOpacity },
-      onClick: (e: React.MouseEvent) => { e.stopPropagation(); prev(); },
+      style: {
+        opacity: chromeOpacity,
+        transition: animateMotion ? `opacity ${motionMs}ms ${motionEase}` : 'none',
+        pointerEvents: motion === 'dismissing' ? 'none' : undefined,
+      },
+      onClick: (e: React.MouseEvent) => { e.stopPropagation(); if (motion !== 'dismissing') prev(); },
       'aria-label': 'Previous image',
     },
       createElement('svg', { width: 24, height: 24, viewBox: '0 0 24 24', fill: 'none', stroke: 'currentColor', strokeWidth: 2, strokeLinecap: 'round', strokeLinejoin: 'round' },
         createElement('path', { d: 'M15 18l-6-6 6-6' }),
       ),
     ),
-    // Sliding strip — pixel translate; vertical drag dismisses
+    // Sliding strip — pixel translate; vertical drag dismisses with ease-out exit
     createElement('div', {
       className: 'hm-md-img-lightbox__track',
       style: {
-        transform: `translate3d(${(-index * widthPx) + dragX}px, ${dragY}px, 0) scale(${1 - dismissProgress * 0.08})`,
-        transition: dragging || dismissingRef.current ? 'none' : 'transform 0.35s cubic-bezier(0.25, 1, 0.5, 1)',
+        transform: `translate3d(${(-index * widthPx) + dragX}px, ${dragY}px, 0) scale(${scale})`,
+        transition: animateMotion
+          ? `transform ${motionMs}ms ${motionEase}, opacity ${motionMs}ms ${motionEase}`
+          : 'none',
         width: widthPx > 0 ? `${images.length * widthPx}px` : undefined,
-        opacity: Math.max(0.25, 1 - dismissProgress * 0.35),
+        opacity: motion === 'dismissing'
+          ? Math.max(0, 1 - dismissProgress)
+          : Math.max(0.55, 1 - dismissProgress * 0.28),
+        willChange: 'transform, opacity',
+      },
+      onTransitionEnd: (e: React.TransitionEvent) => {
+        if (motion !== 'dismissing') return;
+        if (e.propertyName !== 'transform' && e.propertyName !== 'opacity') return;
+        e.stopPropagation();
+        finishClose();
       },
     },
       ...images.map((img) =>
@@ -413,8 +528,12 @@ function Lightbox({ images, startIndex, onClose }: { images: GalleryImage[]; sta
     index < images.length - 1 && createElement('button', {
       type: 'button',
       className: 'hm-md-img-lightbox__nav hm-md-img-lightbox__nav--next',
-      style: { opacity: chromeOpacity },
-      onClick: (e: React.MouseEvent) => { e.stopPropagation(); next(); },
+      style: {
+        opacity: chromeOpacity,
+        transition: animateMotion ? `opacity ${motionMs}ms ${motionEase}` : 'none',
+        pointerEvents: motion === 'dismissing' ? 'none' : undefined,
+      },
+      onClick: (e: React.MouseEvent) => { e.stopPropagation(); if (motion !== 'dismissing') next(); },
       'aria-label': 'Next image',
     },
       createElement('svg', { width: 24, height: 24, viewBox: '0 0 24 24', fill: 'none', stroke: 'currentColor', strokeWidth: 2, strokeLinecap: 'round', strokeLinejoin: 'round' },
@@ -425,8 +544,12 @@ function Lightbox({ images, startIndex, onClose }: { images: GalleryImage[]; sta
     createElement('button', {
       type: 'button',
       className: 'hm-md-img-lightbox__close',
-      style: { opacity: chromeOpacity },
-      onClick: (e: React.MouseEvent) => { e.stopPropagation(); onClose(); },
+      style: {
+        opacity: chromeOpacity,
+        transition: animateMotion ? `opacity ${motionMs}ms ${motionEase}` : 'none',
+        pointerEvents: motion === 'dismissing' ? 'none' : undefined,
+      },
+      onClick: onCloseClick,
       'aria-label': 'Close',
     },
       createElement('svg', { width: 20, height: 20, viewBox: '0 0 24 24', fill: 'none', stroke: 'currentColor', strokeWidth: 2.5, strokeLinecap: 'round', strokeLinejoin: 'round' },

@@ -524,7 +524,8 @@ describe('MessageBubble', () => {
     fireEvent.touchMove(lb, { touches: [{ clientX: 100, clientY: 320 }] });
     fireEvent.touchEnd(lb, { changedTouches: [{ clientX: 100, clientY: 320 }] });
 
-    await vi.advanceTimersByTimeAsync(200);
+    // Smooth dismiss: rAF exit + ~380ms timeout before unmount
+    await vi.advanceTimersByTimeAsync(500);
     await waitFor(() => {
       expect(document.querySelector('.hm-md-img-lightbox')).toBeNull();
     });
