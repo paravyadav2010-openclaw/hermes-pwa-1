@@ -147,10 +147,80 @@ function viewportBoxNow(): { left: number; top: number; width: number; height: n
   };
 }
 
-/** Full-bleed frame for the hero (matches lightbox shell). */
+/** Read iOS safe-area insets (px) via a throwaway node. */
+function safeAreaInsets(): { top: number; right: number; bottom: number; left: number } {
+  if (typeof document === 'undefined') return { top: 0, right: 0, bottom: 0, left: 0 };
+  const el = document.createElement('div');
+  el.style.cssText = [
+    'position:fixed',
+    'visibility:hidden',
+    'pointer-events:none',
+    'padding-top:env(safe-area-inset-top,0px)',
+    'padding-right:env(safe-area-inset-right,0px)',
+    'padding-bottom:env(safe-area-inset-bottom,0px)',
+    'padding-left:env(safe-area-inset-left,0px)',
+  ].join(';');
+  document.body.appendChild(el);
+  const cs = getComputedStyle(el);
+  const out = {
+    top: parseFloat(cs.paddingTop) || 0,
+    right: parseFloat(cs.paddingRight) || 0,
+    bottom: parseFloat(cs.paddingBottom) || 0,
+    left: parseFloat(cs.paddingLeft) || 0,
+  };
+  el.remove();
+  return out;
+}
+
+/**
+ * Content box of a gallery slide — must match `.hm-md-img-lightbox__slide` padding:
+ * top max(52, safe+44), right/left max(12, safe), bottom max(24, safe+16)
+ */
+function gallerySlideContentRect(vp = viewportBoxNow()): ThumbRect {
+  const s = safeAreaInsets();
+  const padT = Math.max(52, s.top + 44);
+  const padR = Math.max(12, s.right);
+  const padB = Math.max(24, s.bottom + 16);
+  const padL = Math.max(12, s.left);
+  return {
+    left: Math.round(vp.left + padL),
+    top: Math.round(vp.top + padT),
+    width: Math.max(1, Math.round(vp.width - padL - padR)),
+    height: Math.max(1, Math.round(vp.height - padT - padB)),
+  };
+}
+
+/** object-fit:contain destination inside the gallery slide content box. */
+function galleryImageRect(naturalW?: number, naturalH?: number, vp = viewportBoxNow()): ThumbRect {
+  const box = gallerySlideContentRect(vp);
+  if (!naturalW || !naturalH || naturalW < 1 || naturalH < 1) return box;
+  const scale = Math.min(box.width / naturalW, box.height / naturalH);
+  const w = Math.max(1, Math.round(naturalW * scale));
+  const h = Math.max(1, Math.round(naturalH * scale));
+  return {
+    left: Math.round(box.left + (box.width - w) / 2),
+    top: Math.round(box.top + (box.height - h) / 2),
+    width: w,
+    height: h,
+  };
+}
+
+function readImageNaturalSize(src: string): Promise<{ w: number; h: number } | null> {
+  return new Promise((resolve) => {
+    if (typeof Image === 'undefined' || !src) {
+      resolve(null);
+      return;
+    }
+    const im = new Image();
+    im.onload = () => resolve({ w: im.naturalWidth || 0, h: im.naturalHeight || 0 });
+    im.onerror = () => resolve(null);
+    im.src = src;
+  });
+}
+
+/** @deprecated full-bleed caused overshoot zoom — use galleryImageRect */
 function fullHeroRect(): ThumbRect {
-  const v = viewportBoxNow();
-  return { left: v.left, top: v.top, width: v.width, height: v.height };
+  return galleryImageRect();
 }
 
 /** Wraps the markdown tree so all MessageImage children share a gallery. */
@@ -373,39 +443,43 @@ function Lightbox({
     };
   }, []);
 
-  // Shared-element OPEN: thumb → fullscreen, then hand off to track only
+  // Shared-element OPEN: thumb → gallery image frame (not full-bleed), then track
   useEffect(() => {
     if (phase !== 'opening' || !origin) return;
     let cancelled = false;
-    let handoffTimer: number | null = null;
-    const id = requestAnimationFrame(() => {
-      requestAnimationFrame(() => {
-        if (cancelled) return;
-        setBackdrop(0.92);
-        setHero({
-          rect: fullHeroRect(),
-          radius: '0px',
-          fit: 'contain',
-        });
-        // Pre-mount track under the hero so handoff has no blank frame
-        setShowTrack(true);
-        setChromeOn(true);
-      });
-    });
-    const done = window.setTimeout(() => {
+    const src = images[startIndex]?.resolvedSrc ?? images[0]?.resolvedSrc ?? '';
+
+    const run = async () => {
+      const natural = await readImageNaturalSize(src);
       if (cancelled) return;
-      // Drop hero FIRST in the same turn as phase=open so swipe only moves the track
-      setHero(null);
-      setPhase('open');
-      setShowTrack(true);
-    }, OPEN_MS + 20);
+      const target = galleryImageRect(natural?.w, natural?.h);
+      requestAnimationFrame(() => {
+        requestAnimationFrame(() => {
+          if (cancelled) return;
+          setBackdrop(0.92);
+          // End at the same size the swipe gallery will show — no extra zoom
+          setHero({
+            rect: target,
+            radius: '0px',
+            fit: 'fill', // rect already object-fit:contain sized
+          });
+          setShowTrack(true);
+          setChromeOn(true);
+        });
+      });
+      window.setTimeout(() => {
+        if (cancelled) return;
+        setHero(null);
+        setPhase('open');
+        setShowTrack(true);
+      }, OPEN_MS + 20);
+    };
+
+    void run();
     return () => {
       cancelled = true;
-      cancelAnimationFrame(id);
-      window.clearTimeout(done);
-      if (handoffTimer != null) window.clearTimeout(handoffTimer);
     };
-  }, [phase, origin]);
+  }, [phase, origin, images, startIndex]);
 
   // Hard guarantee: never keep a hero layer while browsing/swiping
   useEffect(() => {
@@ -433,7 +507,6 @@ function Lightbox({
     if (closedRef.current || phase === 'dismissing') return;
     const key = images[index]?.key ?? openKey;
     const target = measureThumbRect(key) ?? openOriginRef.current;
-    const from = fullHeroRect();
 
     setPhase('dismissing');
     setChromeOn(false);
@@ -441,19 +514,32 @@ function Lightbox({
     setDragX(0);
     setDragY(0);
 
-    // Start hero at current visual (shifted if finger-dragging)
+    // Prefer the on-screen gallery image box (exact swipe-gallery size)
+    let frame = galleryImageRect();
+    const liveImg = containerRef.current?.querySelector(
+      '.hm-md-img-lightbox__slide img.hm-md-img-lightbox__img',
+    ) as HTMLImageElement | null;
+    if (liveImg) {
+      const b = liveImg.getBoundingClientRect();
+      if (b.width >= 2 && b.height >= 2) {
+        frame = { left: b.left, top: b.top, width: b.width, height: b.height };
+      } else if (liveImg.naturalWidth > 0 && liveImg.naturalHeight > 0) {
+        frame = galleryImageRect(liveImg.naturalWidth, liveImg.naturalHeight);
+      }
+    }
+
     const startRect: ThumbRect = {
-      left: from.left,
-      top: from.top + dragOffsetY,
-      width: from.width,
-      height: from.height,
+      left: frame.left,
+      top: frame.top + dragOffsetY,
+      width: frame.width,
+      height: frame.height,
     };
     setHero({
       rect: startRect,
       radius: '0px',
-      fit: 'contain',
+      fit: 'fill',
     });
-    setBackdrop(Math.max(0, 0.92 * (1 - Math.min(1, Math.abs(dragOffsetY) / (from.height * 0.4)))));
+    setBackdrop(Math.max(0, 0.92 * (1 - Math.min(1, Math.abs(dragOffsetY) / (Math.max(frame.height, 1) * 0.4)))));
 
     requestAnimationFrame(() => {
       requestAnimationFrame(() => {
@@ -464,17 +550,17 @@ function Lightbox({
             fit: 'cover',
           });
         } else {
-          // No thumb: slide + fade away in swipe direction
           const dir = dragOffsetY === 0 ? 1 : Math.sign(dragOffsetY) || 1;
+          const vp = viewportBoxNow();
           setHero({
             rect: {
-              left: from.left,
-              top: from.top + dir * from.height,
-              width: from.width,
-              height: from.height,
+              left: frame.left,
+              top: frame.top + dir * vp.height,
+              width: frame.width,
+              height: frame.height,
             },
             radius: '0px',
-            fit: 'contain',
+            fit: 'fill',
           });
         }
         setBackdrop(0);
