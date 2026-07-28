@@ -1,4 +1,4 @@
-import { useMemo, useState } from 'react';
+import { useEffect, useMemo, useRef, useState } from 'react';
 import type { RpcClient, ToolCall } from '@hermes-pwa/core';
 import { Icon } from './Icon';
 import { buildToolView, truncate } from '../lib/toolView';
@@ -24,10 +24,19 @@ export function ToolRow({ tool, rpc: _rpc, streaming, onOpenChange, standalone =
   const isPendingTool = view.status === 'running' || tool.output === undefined;
   const isRunning = isPendingTool && (Boolean(streaming) || standalone);
   const hasDetail = Boolean(view.detail && view.detail.trim() && view.detail.trim() !== view.title.trim());
-  // The newest tool begins open; the user can still collapse it.
+  // The newest tool begins open; collapses when streaming ends.
   const [expanded, setExpanded] = useState(standalone || Boolean(isPendingTool && hasDetail));
   const [copied, setCopied] = useState(false);
   const open = expanded && hasDetail;
+  const wasStreamingRef = useRef(streaming);
+
+  // Collapse standalone tool when streaming ends.
+  useEffect(() => {
+    if (standalone && wasStreamingRef.current && !streaming) {
+      setExpanded(false);
+    }
+    wasStreamingRef.current = streaming;
+  }, [streaming, standalone]);
 
   const toggle = () => {
     if (!hasDetail) return;

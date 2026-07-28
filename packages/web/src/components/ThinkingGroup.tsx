@@ -100,13 +100,22 @@ export function ThinkingGroup({ parts, streaming: _streaming }: ThinkingGroupPro
 
 /**
  * The latest thought sits outside the collapsed history group. It starts open
- * but remains a normal disclosure so the user can collapse it mid-stream.
+ * while streaming and collapses when the turn settles.
  */
 export function LiveThinking({ text, streaming = true }: { text: string; streaming?: boolean }) {
   const cleaned = text.trim();
   if (!cleaned) return null;
   const bodyRef = useRef<HTMLDivElement | null>(null);
   const [open, setOpen] = useState(true);
+  const wasStreamingRef = useRef(streaming);
+
+  // Collapse when streaming ends.
+  useEffect(() => {
+    if (wasStreamingRef.current && !streaming) {
+      setOpen(false);
+    }
+    wasStreamingRef.current = streaming;
+  }, [streaming]);
 
   // Keep an open live body scrolled to the latest tokens without reopening a
   // disclosure the user intentionally collapsed.
