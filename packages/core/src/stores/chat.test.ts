@@ -1489,4 +1489,49 @@ describe('useChatStore', () => {
     expect(state.messages).toEqual([]);
     expect(state.streaming).toBe(false);
   });
+
+  it('refreshHistory does not duplicate a message whose local thinking differs from REST', async () => {
+    useSessionsStore.setState({
+      sessions: [{ id: 'stored-dedup', title: 'Dedup test', updatedAt: 2, messageCount: 2, profile: 'default' }],
+      loading: false,
+      error: undefined,
+      pinnedIds: [],
+    });
+    // Simulate: user sent a message, assistant streamed a reply with thinking,
+    // finishAssistant() set thinking locally. REST returns the same text but
+    // no thinking — fingerprints must still match (no duplicate).
+    useChatStore.setState({
+      sessionId: 'live-dedup',
+      storedSessionId: 'stored-dedup',
+      messages: [
+        { id: 'u-1', role: 'user', text: 'Hello', createdAt: 1 },
+        {
+          id: 'a-local',
+          role: 'assistant',
+          text: 'Hi there!',
+          createdAt: 2,
+          thinking: 'The user said hello, I should respond warmly.',
+          thinkingParts: ['The user said hello, I should respond warmly.'],
+        },
+      ],
+      streaming: false,
+      error: undefined,
+    });
+    vi.mocked(restMock.sessionMessages).mockResolvedValue({
+      session_id: 'stored-dedup',
+      messages: [
+        { id: 'u-rest', role: 'user', text: 'Hello', created_at: 1 },
+        { id: 'a-rest', role: 'assistant', text: 'Hi there!', created_at: 2 },
+      ],
+    });
+
+    await useChatStore.getState().refreshHistory(restMock, 'default');
+
+    const msgs = useChatStore.getState().messages;
+    // Must be exactly 2 messages (user + assistant), not 3+
+    expect(msgs).toHaveLength(2);
+    expect(msgs[0]?.role).toBe('user');
+    expect(msgs[1]?.role).toBe('assistant');
+    expect(msgs[1]?.text).toBe('Hi there!');
+  });
 });
