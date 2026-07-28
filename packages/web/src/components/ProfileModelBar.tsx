@@ -215,20 +215,23 @@ export function ProfileModelBar({
 
   async function handleModelSelect(model: string) {
     const provider = selectedProvider ?? (providerLabel || 'default');
-    try {
-      await onModelChange(provider, model);
-    } catch (error) {
-      const detail = error instanceof Error && error.message ? error.message : 'The profile update was rejected.';
-      setSwitchState({ kind: 'error', detail: `Model unchanged: ${detail}` });
-      return;
-    }
     setDropdown(null);
     setSelectedProvider(null);
+
     if (!sessionId) {
-      setSwitchState({ kind: 'success', detail: 'Default updated. Start a session to use it.' });
+      // No live session — just update the profile default.
+      try {
+        await onModelChange(provider, model);
+        setSwitchState({ kind: 'success', detail: 'Default updated. Start a session to use it.' });
+      } catch (error) {
+        const detail = error instanceof Error && error.message ? error.message : 'The profile update was rejected.';
+        setSwitchState({ kind: 'error', detail: `Model unchanged: ${detail}` });
+      }
       return;
     }
 
+    // Live session: switch the SESSION first so the gateway routes correctly,
+    // then update the profile default in the background.
     const sequence = switchSequenceRef.current + 1;
     switchSequenceRef.current = sequence;
     setSwitchState({ kind: 'pending', detail: `Switching to ${model}…` });
@@ -237,13 +240,19 @@ export function ProfileModelBar({
       if (switchSequenceRef.current === sequence) {
         setSwitchState({ kind: 'success', detail: `Current session: ${provider} · ${model}` });
       }
+      // Update profile default in background — don't block on it.
+      void onModelChange(provider, model).catch(() => {});
     } catch (error) {
       if (switchSequenceRef.current === sequence) {
         const msg = error instanceof Error && error.message ? error.message : '';
-        // Session expired on the gateway — the profile default was already
-        // updated above; surface a gentle reminder instead of an error.
         if (msg.includes('not found') || msg.includes('not live')) {
-          setSwitchState({ kind: 'success', detail: `Default updated: ${provider} · ${model}. Start a new chat to use it.` });
+          // Session expired — fall back to updating just the profile default.
+          try {
+            await onModelChange(provider, model);
+            setSwitchState({ kind: 'success', detail: `Default updated: ${provider} · ${model}. Start a new chat to use it.` });
+          } catch {
+            setSwitchState({ kind: 'error', detail: `Model unchanged: ${msg}` });
+          }
         } else {
           setSwitchState({ kind: 'error', detail: `Model unchanged: ${msg || 'The gateway rejected the model switch.'}` });
         }
