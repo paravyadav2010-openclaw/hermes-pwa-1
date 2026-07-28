@@ -569,7 +569,8 @@ a {
   filter: blur(24px) saturate(1.2);
   opacity: 0.76;
   transform: translate3d(0, 0, 0) scaleX(0.94);
-  animation: hm-composer-aura 3.8s cubic-bezier(0.37, 0, 0.63, 1) infinite;
+  animation: hm-composer-aura 3.8s cubic-bezier(0.37, 0, 0.63, 1) infinite,
+             hm-composer-glow-pulse 4s ease-in-out infinite;
   will-change: background-position, transform, opacity;
 }
 
@@ -597,6 +598,15 @@ a {
   }
 }
 
+@keyframes hm-composer-glow-pulse {
+  0%, 100% {
+    opacity: 0.5;
+  }
+  50% {
+    opacity: 0.85;
+  }
+}
+
 .hm-chat-dock .hm-composer {
   border-top: 0;
   background: transparent;
@@ -605,20 +615,6 @@ a {
   margin: 0;
   border-radius: 16px;
   overflow: visible;
-  animation: hm-composer-pulse 4s ease-in-out infinite;
-}
-
-@keyframes hm-composer-pulse {
-  0%, 100% {
-    box-shadow:
-      inset 0 0 12px color-mix(in srgb, var(--hm-color-accent) 12%, transparent),
-      inset 0 1px 0 color-mix(in srgb, var(--hm-color-accent) 8%, transparent);
-  }
-  50% {
-    box-shadow:
-      inset 0 0 20px color-mix(in srgb, var(--hm-color-accent) 22%, transparent),
-      inset 0 1px 0 color-mix(in srgb, var(--hm-color-accent) 14%, transparent);
-  }
 }
 
 .hm-chat-dock .hm-chat__bar-area {
