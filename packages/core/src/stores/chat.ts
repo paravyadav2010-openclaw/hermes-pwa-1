@@ -445,10 +445,14 @@ function messageFingerprint(message: Message): string {
   // and the REST session snapshot (different ids, missing output, different
   // ordering). Including them causes the merge to treat the REST version as a
   // different message and drop the local one with its inline approval UI.
+  //
+  // Also exclude thinking: finishAssistant() may set thinkingParts locally,
+  // but the gateway's REST snapshot often returns empty thinking. If thinking
+  // is in the fingerprint, the merge treats them as different messages and
+  // keeps both — producing a visible duplicate.
   return JSON.stringify([
     message.role,
     message.text,
-    message.thinking ?? '',
   ]);
 }
 
