@@ -239,8 +239,14 @@ export function ProfileModelBar({
       }
     } catch (error) {
       if (switchSequenceRef.current === sequence) {
-        const detail = error instanceof Error && error.message ? error.message : 'The gateway rejected the model switch.';
-        setSwitchState({ kind: 'error', detail: `Model unchanged: ${detail}` });
+        const msg = error instanceof Error && error.message ? error.message : '';
+        // Session expired on the gateway — the profile default was already
+        // updated above; surface a gentle reminder instead of an error.
+        if (msg.includes('not found') || msg.includes('not live')) {
+          setSwitchState({ kind: 'success', detail: `Default updated: ${provider} · ${model}. Start a new chat to use it.` });
+        } else {
+          setSwitchState({ kind: 'error', detail: `Model unchanged: ${msg || 'The gateway rejected the model switch.'}` });
+        }
       }
     }
   }

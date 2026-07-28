@@ -71,6 +71,18 @@ describe('Sessions screen', () => {
     expect(screen.getAllByText(/5 msgs/).length).toBeGreaterThan(0);
   });
 
+  it('keeps search and filters in the sessions control layer', async () => {
+    vi.mocked(restMock.profileSessions).mockResolvedValue([
+      session({ id: 'sess-1', title: 'Canvas session', messageCount: 5, profile: 'default' }),
+    ]);
+    render(<Sessions rpc={rpcMock} rest={restMock} onSessionOpen={vi.fn()} />);
+
+    await waitFor(() => expect(screen.getByText('Canvas session')).toBeInTheDocument());
+    const controls = screen.getByTestId('sessions-controls');
+    expect(controls).toContainElement(screen.getByRole('textbox', { name: /Search sessions/i }));
+    expect(controls).toContainElement(screen.getByRole('tablist', { name: /Session filters/i }));
+  });
+
   it('shows stats row', async () => {
     vi.mocked(restMock.profileSessions).mockResolvedValue([
       session({ id: 'sess-1', title: 'Session 1' }),
@@ -124,7 +136,8 @@ describe('Sessions screen', () => {
     expect(screen.getByText('Mixed local')).toBeInTheDocument();
     fireEvent.change(screen.getByPlaceholderText(/Search/i), { target: { value: '' } });
 
-    const sourceSelect = screen.getByTestId('sessions-source-select');
+    const sourceSelect = screen.getByTestId('sessions-source-select') as HTMLSelectElement;
+    expect(sourceSelect.options[0]?.textContent).toBe('All sources');
     fireEvent.change(sourceSelect, { target: { value: 'cli' } });
     expect(screen.getByText('CLI thread')).toBeInTheDocument();
     expect(screen.getByText('Mixed local')).toBeInTheDocument();
@@ -189,6 +202,19 @@ describe('Sessions screen', () => {
 
     resolveResume();
     await waitFor(() => expect(onOpen).toHaveBeenCalled());
+  });
+
+  it('starts a fresh chat from the floating action', async () => {
+    const onOpen = vi.fn();
+    const startNewSession = vi.spyOn(useChatStore.getState(), 'startNewSession');
+    render(<Sessions rpc={rpcMock} rest={restMock} onSessionOpen={onOpen} />);
+
+    await waitFor(() => expect(screen.getByRole('button', { name: /New chat/i })).toBeInTheDocument());
+    fireEvent.click(screen.getByRole('button', { name: /New chat/i }));
+
+    expect(startNewSession).toHaveBeenCalledWith('default');
+    expect(onOpen).toHaveBeenCalledOnce();
+    startNewSession.mockRestore();
   });
 
   it('archives and restores a session through backend patch', async () => {

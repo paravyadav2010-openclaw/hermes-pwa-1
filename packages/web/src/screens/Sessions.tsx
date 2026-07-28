@@ -368,6 +368,11 @@ export function Sessions({ rpc, rest, onSessionOpen }: SessionsProps) {
     togglePin(session);
   }
 
+  function handleNewChat() {
+    useChatStore.getState().startNewSession(activeName);
+    onSessionOpen();
+  }
+
   const profileNames = useMemo(() => profiles.map((p) => p.name), [profiles]);
 
   const profileOptions = useMemo(
@@ -413,7 +418,6 @@ export function Sessions({ rpc, rest, onSessionOpen }: SessionsProps) {
     `${total} session${total !== 1 ? 's' : ''}`,
     live > 0 ? `${live} live` : '',
     totalMsgs > 0 ? `${totalMsgs} msgs` : '',
-    profileFilter !== 'all' ? profileFilter : '',
   ]
     .filter(Boolean)
     .join(' · ');
@@ -430,6 +434,7 @@ export function Sessions({ rpc, rest, onSessionOpen }: SessionsProps) {
 
   return (
     <div className="hm-sessions">
+      <div className="hm-sessions__controls" data-testid="sessions-controls">
       <div className="hm-sessions__search-row">
         <input
           className="hm-input hm-sessions__search"
@@ -474,7 +479,6 @@ export function Sessions({ rpc, rest, onSessionOpen }: SessionsProps) {
                 {sourceOptions.map((option) => (
                   <option key={option.key} value={option.key}>
                     {option.label}
-                    {option.key === 'all' ? ` (${option.count})` : ` · ${option.count}`}
                   </option>
                 ))}
               </select>
@@ -498,6 +502,7 @@ export function Sessions({ rpc, rest, onSessionOpen }: SessionsProps) {
       </div>
 
       {total > 0 && <p className="hm-sessions__stats">{statsLine}</p>}
+      </div>
 
       {error && <div className="hm-warning-banner hm-warning-banner--error">{error}</div>}
       {loading && sessions.length === 0 && <p className="hm-muted hm-loading">Loading…</p>}
@@ -532,6 +537,10 @@ export function Sessions({ rpc, rest, onSessionOpen }: SessionsProps) {
           ))}
         </div>
       )}
+      <button type="button" className="hm-sessions__new-chat" onClick={handleNewChat}>
+        <Icon name="plus" size={18} />
+        <span>New chat</span>
+      </button>
     </div>
   );
 }

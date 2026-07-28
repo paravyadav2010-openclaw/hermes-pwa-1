@@ -14,6 +14,7 @@ import { LONG_RPC_TIMEOUT_MS } from '../transport/timeouts';
 const LEGACY_ACTIVE_SESSION_STORAGE_KEYS = ['hermes-pwa.activeSession.v1', 'hermes-pwa.activeSession.v2'] as const;
 const ACTIVE_SESSION_STORAGE_KEY = 'hermes-pwa.activeSession.v3';
 const PROFILED_ACTIVE_SESSION_STORAGE_KEY_PREFIX = 'hermes-pwa.activeSession.v4';
+const DRAFT_STORAGE_KEY = 'hermes-pwa.draft.v1';
 const ANSI_ESCAPE_PATTERN = new RegExp(`${String.fromCharCode(27)}\\[[0-?]*[ -/]*[@-~]`, 'g');
 const PWA_UNSUPPORTED_SLASH_COMMANDS = new Set(['/whoami']);
 const MAX_ALIAS_DISPATCH_DEPTH = 8;
@@ -99,12 +100,16 @@ export interface ChatStore {
   error: string | undefined;
   /** Live header title for the open chat (updates immediately on send / session.title). */
   chatTitle: string | undefined;
+  /** Unsent message draft, persists across screen navigation. */
+  draft: string;
 
   /** Internal cache scope; not shown in UI. */
   cacheProfile: string | undefined;
 
   setSessionId(id: string | undefined, storedSessionId?: string | undefined): void;
   setChatTitle(title: string | undefined): void;
+  /** Update the unsent message draft. Persists in localStorage. */
+  setDraft(text: string): void;
   loadHistory(rest: RestClient, sessionId: string): Promise<void>;
   refreshHistory(rest: RestClient, profile?: string): Promise<void>;
   restore(rest: RestClient, rpc: RpcClient, profile?: string): Promise<void>;
@@ -862,6 +867,28 @@ function readActiveSessionCache(profile?: string): ActiveSessionCache {
   }
 }
 
+function readDraft(): string {
+  if (typeof window === 'undefined') return '';
+  try {
+    return window.localStorage.getItem(DRAFT_STORAGE_KEY) ?? '';
+  } catch {
+    return '';
+  }
+}
+
+function persistDraft(text: string): void {
+  if (typeof window === 'undefined') return;
+  try {
+    if (text) {
+      window.localStorage.setItem(DRAFT_STORAGE_KEY, text);
+    } else {
+      window.localStorage.removeItem(DRAFT_STORAGE_KEY);
+    }
+  } catch {
+    // ignore
+  }
+}
+
 function persistActiveSessionNow(state: ActiveSessionPersistState): void {
   if (typeof window === 'undefined') return;
   try {
@@ -1068,6 +1095,7 @@ export const useChatStore = create<ChatStore>((set, get) => ({
   streaming: initialCache.streaming,
   error: undefined,
   chatTitle: undefined,
+  draft: readDraft(),
   cacheProfile: initialCache.profile,
 
   setSessionId(id, storedSessionId) {
@@ -1079,6 +1107,11 @@ export const useChatStore = create<ChatStore>((set, get) => ({
   setChatTitle(title) {
     const nextTitle = typeof title === 'string' ? title.replace(/\s+/g, ' ').trim() : '';
     set({ chatTitle: nextTitle || undefined });
+  },
+
+  setDraft(text) {
+    set({ draft: text });
+    persistDraft(text);
   },
 
   async loadHistory(rest, sessionId) {

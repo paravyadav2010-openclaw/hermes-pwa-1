@@ -1,5 +1,6 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import type { Message, RpcClient } from '@hermes-pwa/core';
+import { useChatStore } from '@hermes-pwa/core';
 import { Icon } from './Icon';
 import { AttachMenu } from './AttachMenu';
 import { loadClipboardHistory, pushClipboardHistory } from '../lib/clipboardHistory';
@@ -166,7 +167,7 @@ export function Composer({
   onUploadFile,
   onLayoutChange,
 }: ComposerProps) {
-  const [text, setText] = useState('');
+  const [text, setText] = useState(() => useChatStore.getState().draft);
   const [attachments, setAttachments] = useState<AttachmentDraft[]>([]);
   const [voiceModeEnabled, setVoiceModeEnabled] = useState(false);
   const [attachMenuOpen, setAttachMenuOpen] = useState(false);
@@ -183,6 +184,11 @@ export function Composer({
   const hasPayload = hasText || attachments.some((a) => !a.uploading && !a.error && a.path);
   const slashPaletteOpen = shouldShowSlashPalette(text) && Boolean(slashCommandsRpc) && slashSuppressedText !== text;
   const canPasteClipboard = Boolean(navigator.clipboard?.readText);
+
+  // Persist draft to store whenever text changes
+  useEffect(() => {
+    useChatStore.getState().setDraft(text);
+  }, [text]);
 
   const handleTranscript = useCallback((transcript: string) => {
     setText((prev) => {
