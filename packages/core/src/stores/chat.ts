@@ -122,6 +122,8 @@ export interface ChatStore {
   interrupt(rpc: RpcClient, options?: InterruptOptions): Promise<void>;
   appendDelta(text: string): void;
   finishAssistant(finalText?: string | undefined): void;
+  /** Replace the last assistant placeholder with slash command output. */
+  finishAssistantFromSlash(text: string): void;
   failAssistant(error: string): void;
   markIdle(): void;
   appendToolCall(tool: ToolCall): void;
@@ -1394,6 +1396,21 @@ export const useChatStore = create<ChatStore>((set, get) => ({
         const focus = parsed.arg?.trim();
         if (focus) params.focus_topic = focus;
 
+        // Set streaming so the event handlers process tool/thinking/status
+        // events that arrive during the compress operation.
+        const now = Date.now();
+        const optimistic = {
+          streaming: true,
+          error: undefined,
+          messages: [
+            ...get().messages,
+            { id: `u-${now}`, role: 'user' as const, text: parsed.command, createdAt: now },
+            { id: nextAssistantMessageId(), role: 'assistant' as const, text: '', createdAt: now },
+          ],
+        };
+        set(optimistic);
+        persistActiveSession({ ...get(), ...optimistic });
+
         const runCompress = async () =>
           rpc.request<unknown>('session.compress', params, { timeoutMs: LONG_RPC_TIMEOUT_MS });
 
@@ -1408,7 +1425,7 @@ export const useChatStore = create<ChatStore>((set, get) => ({
           const nextSession = {
             sessionId: replacement.sessionId,
             storedSessionId: replacement.storedSessionId,
-            streaming: false,
+            streaming: true,
             error: undefined,
           };
           set(nextSession);
@@ -1440,7 +1457,8 @@ export const useChatStore = create<ChatStore>((set, get) => ({
           }
         }
 
-        renderSlashOutput(parsed.command, formatSessionCompressResult(result));
+        // Replace the empty assistant placeholder with the compress summary.
+        get().finishAssistantFromSlash(formatSessionCompressResult(result));
         return 'submitted';
       } catch (err) {
         const detail = userFacingChatError(err, 'Compression failed.');
@@ -1792,6 +1810,20 @@ export const useChatStore = create<ChatStore>((set, get) => ({
         }
         delete nextLast.thinkingNeedsNewPart;
         msgs[msgs.length - 1] = nextLast;
+      }
+      const next = { streaming: false, messages: msgs };
+      persistActiveSession({ ...state, ...next });
+      return next;
+    });
+  },
+
+  /** Replace the last assistant placeholder with slash command output text. */
+  finishAssistantFromSlash(text) {
+    set((state) => {
+      const msgs = [...state.messages];
+      const last = msgs[msgs.length - 1] as InternalMessage | undefined;
+      if (last && last.role === 'assistant') {
+        msgs[msgs.length - 1] = { ...last, text, createdAt: Date.now() };
       }
       const next = { streaming: false, messages: msgs };
       persistActiveSession({ ...state, ...next });
