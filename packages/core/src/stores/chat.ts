@@ -1800,10 +1800,7 @@ export const useChatStore = create<ChatStore>((set, get) => ({
           nextLast.thinkingParts = parts;
         } else {
           const single = parts[0] ?? nextLast.thinking;
-          if (isExactDuplicateReasoning(single, text)) {
-            delete nextLast.thinking;
-            delete nextLast.thinkingParts;
-          } else if (single?.trim()) {
+          if (single?.trim()) {
             nextLast.thinking = single;
             nextLast.thinkingParts = [single];
           }
@@ -1947,13 +1944,7 @@ export const useChatStore = create<ChatStore>((set, get) => ({
 
       // Keep all parts; only strip pure exact echo of the current answer text.
       const nextThinking = parts.join('\n\n');
-      if (isExactDuplicateReasoning(nextThinking, last.text) && parts.length <= 1) {
-        const nextLast: InternalMessage = { ...last };
-        delete nextLast.thinking;
-        delete nextLast.thinkingParts;
-        delete nextLast.thinkingNeedsNewPart;
-        msgs[msgs.length - 1] = nextLast;
-      } else {
+      if (nextThinking.trim()) {
         const nextLast: InternalMessage = {
           ...last,
           thinking: nextThinking,

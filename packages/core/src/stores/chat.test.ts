@@ -644,7 +644,7 @@ describe('useChatStore', () => {
     expect(useChatStore.getState().streaming).toBe(false);
   });
 
-  it('finishAssistant clears thinking when it duplicates the final answer', () => {
+  it('finishAssistant keeps thinking even when it duplicates the final answer', () => {
     const duplicate =
       'The logical next step is to **finish the PWA approval/todo test**, because we started it and left two pending.\n\nHere is what I would do:\n\n1. Mark the second item in_progress.';
     useChatStore.setState({
@@ -654,11 +654,11 @@ describe('useChatStore', () => {
 
     useChatStore.getState().finishAssistant(duplicate.replace(/\*\*/g, ''));
 
-    expect(useChatStore.getState().messages[0]?.thinking).toBeUndefined();
+    expect(useChatStore.getState().messages[0]?.thinking).toBe(duplicate);
     expect(useChatStore.getState().messages[0]?.text).toContain('The logical next step');
   });
 
-  it('finishAssistant clears short thinking when it exactly duplicates the final answer', () => {
+  it('finishAssistant keeps short thinking even when it exactly duplicates the final answer', () => {
     const duplicate = 'Online. Updated the todo.';
     useChatStore.setState({
       streaming: true,
@@ -667,7 +667,7 @@ describe('useChatStore', () => {
 
     useChatStore.getState().finishAssistant(duplicate);
 
-    expect(useChatStore.getState().messages[0]?.thinking).toBeUndefined();
+    expect(useChatStore.getState().messages[0]?.thinking).toBe(duplicate);
     expect(useChatStore.getState().messages[0]?.text).toBe(duplicate);
   });
 
